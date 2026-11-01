@@ -14,6 +14,7 @@ there is no NVIDIA card — much slower).
 | Derush | sync result, or a sequence you synced yourself (FCP7 XML) + script | `2 triage`, `3 derush` | yes: give the Premiere XML |
 | Illustrations: collect + pick | script (.md with links) | contact sheet, files per section, credits | yes: no derush needed |
 | Illustrations: place | picks + `.autocut.xml` and/or your current edit (FCP7 XML) | B-roll at the sentence timecodes | re-run any time after re-editing |
+| Illustrations: place, from Premiere | picks + the sequence open in Premiere ([panel](#premiere-panel)) | B-roll straight into the sequence | one click after each re-edit, no XML |
 
 The link between steps is the `Sxxx` sentence number: part 1 writes it in a marker over
 every take, part 2 files every illustration under it.
@@ -183,6 +184,27 @@ Screenshots use the Edge installed with Windows. The similarity model (~220 MB) 
 downloaded on first use. Optional: `ollama serve` with any model for better queries
 (`AUTOCUT_OLLAMA_MODEL` to choose), or `ANTHROPIC_API_KEY` for Claude (paid, a few
 cents per script); `EUROPEANA_KEY` for your own free Europeana key.
+
+### Premiere panel
+
+Instead of exporting the edit as XML and importing a B-roll XML back, the **Autocut** panel
+works on the sequence open in Premiere (2025 v25.6 or later). **Placer les illustrations**
+reads the sequence, asks the Autocut window where each exported pick goes, imports the files
+(bin `Illustrations - <title>`, one sub-bin per section; files already there are reused) and
+puts them on the tracks above the edit, creating tracks when needed. Clicking it again after
+re-editing first removes what it placed before (only files from the `export` folder: your
+edit is never touched). **Retirer** removes them. Undo works, in a few steps.
+
+The Autocut window must be open (the panel talks to it on `127.0.0.1:47820`), with the script
+in the Illustrations tab and the picks exported. Without the window:
+`uv run autocut-sources premiere "episode 12 - sources" [--derush "episode 12.autocut.xml"]`.
+
+Install (once, free):
+1. Premiere: Preferences → Plugins → **Enable developer mode**, restart Premiere.
+2. Install **UXP Developer Tools** from the Creative Cloud app (Apps → All apps).
+3. In UXP Developer Tools: **Add Plugin** → pick `premiere/manifest.json` → **Load**. The panel
+   is in Premiere's Window menu (UXP plugins → Autocut). To keep it without the tool,
+   **Package** it there and double-click the `.ccx`.
 
 ## Tests
 

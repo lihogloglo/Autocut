@@ -173,3 +173,17 @@ def standalone_copy(seq: Seq, uid: str, name: str) -> ET.Element:
             if not len(f) and fid in full:
                 parent[i] = copy.deepcopy(full[fid])
     return out
+
+
+def seq_from_panel(data: dict) -> Seq:
+    """A sequence as the Premiere panel reads it from the open project (times in seconds, source
+    in-points counted from the start of the media like the XML's), instead of from an exported XML."""
+    items = [Item(float(i["start"]), float(i["end"]), float(i["in"]), _key(Path(i["path"])),
+                  Path(i["path"]).suffix.lower() in AUDIO_EXT)
+             for i in data.get("items", []) if i.get("path") and float(i["end"]) > float(i["start"])]
+    markers = [(m.get("name", ""), float(m["start"]), float(m["start"]) + float(m.get("duration", 0)))
+               for m in data.get("markers", [])]
+    fps = Fraction(data.get("fps") or 25).limit_denominator(1001)
+    el = ET.Element("sequence")
+    return Seq(data.get("name") or "séquence", el, el, fps,
+               (int(data.get("width") or 1920), int(data.get("height") or 1080)), items, markers)

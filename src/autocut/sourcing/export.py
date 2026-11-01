@@ -19,7 +19,7 @@ from ..media import MediaInfo, ensure_ffmpeg, probe
 from ..xmeml import PPRO_TICKS, add_marker, el, file_element, rate, write_document
 from .fetch import Fetcher
 from .model import Asset, Manifest
-from .place import place_sentences, read_sequence, standalone_copy
+from .place import Seq, place_sentences, read_sequence, standalone_copy
 
 PREMIERE_IMAGE = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".psd"}
 STILL_SECONDS = 5.0                  # images placed one after the other (no timings)
@@ -345,14 +345,14 @@ def _tc(seconds: float, fps: Fraction) -> str:
     return f"{n // (3600 * tb):02d}:{n // (60 * tb) % 60:02d}:{n // tb % 60:02d}:{n % tb:02d}"
 
 
-def place(out: Path, files: list[tuple[Asset, Path]], derush_xml: Path | None = None, edit_xml: Path | None = None,
-          edit_sequence: str | None = None, log=print) -> Path:
-    """Premiere XML of the exported files at their sentences: a B-roll-only sequence, and a copy of the
-    edit (or of `3 derush`) with the B-roll on tracks above. Without timings, one after the other."""
+def layout(out: Path, files: list[tuple[int, Path]], derush_xml: Path | None = None, target: Seq | None = None,
+           log=print) -> tuple[list[tuple[MediaInfo, float, float, float, bool, str]], Seq | None, bool]:
+    """Where each exported file goes: (media, start, source in, length, is_still, label) sorted by start,
+    in `target` (the edit) or else in the derush; one after the other without either. Also returns the
+    sequence used and whether the files are at their sentences."""
     manifest = Manifest.load(out / "manifest.json")
     sentences = {s["idx"]: s for s in manifest.sentences}
     derush = read_sequence(derush_xml, prefer="derush") if derush_xml else None
-    target = read_sequence(edit_xml, edit_sequence, prefer="derush") if edit_xml else None
     ref = target or derush
     where: dict[int, tuple[float, float]] = {}
     if derush and derush.markers:
@@ -362,15 +362,15 @@ def place(out: Path, files: list[tuple[Asset, Path]], derush_xml: Path | None = 
     elif derush_xml:                         # older part 1 XML: take info in the clip names
         times, *_ = sentence_times(derush_xml)
         where = {i: (t, t + STILL_SECONDS) for i, t in times.items()}
-    fps, size = (ref.fps, ref.size) if ref else (Fraction(25), (1920, 1080))
+    fps = ref.fps if ref else Fraction(25)
     if ref:
         log(f"  séquence « {ref.name} » : {len(where)} phrases repérées"
             + (f" (via le derush « {derush.name} »)" if derush and target else ""))
         if not where:
             log("  aucune phrase repérée : donnez le .autocut.xml de la partie 1 (marqueurs Sxxx)")
 
-    placed, markers, cursor, missing = [], [], 0.0, 0
-    for a, path in files:
+    placed, cursor, missing = [], 0.0, 0
+    for sentence, path in files:
         try:
             if path.suffix.lower() in PREMIERE_IMAGE:
                 with Image.open(path) as im:
@@ -385,18 +385,46 @@ def place(out: Path, files: list[tuple[Asset, Path]], derush_xml: Path | None = 
             log(f"  ignoré dans le XML : {path.name} ({e})")
             continue
         if where:
-            if a.sentence not in where:
+            if sentence not in where:
                 missing += 1
                 continue
-            start, end = where[a.sentence]
+            start, end = where[sentence]
             if still:      # the image lasts as long as its sentence is spoken
                 length = min(MAX_STILL_SECONDS, max(MIN_STILL_SECONDS, end - start))
         else:
             start = cursor
             cursor += length
-        label = f"S{a.sentence + 1:03d} · {sentences[a.sentence]['text'][:70]}"
+        label = f"S{sentence + 1:03d} · {sentences[sentence]['text'][:70]}"
         placed.append((m, start, src, length, still, label))
     placed.sort(key=lambda p: p[1])         # takes kept in the edit may be in another order than the script
+    if missing:
+        log(f"  {missing} élément(s) dont la phrase n'est pas dans « {ref.name} » (coupée au montage ?) : "
+            "exportés mais pas placés")
+    return placed, ref, bool(where)
+
+
+def lanes(placed: list[tuple[MediaInfo, float, float, float, bool, str]]) -> list[int]:
+    """Track per placed item, 0 = lowest: alternatives for one sentence stack up, the rest stays low."""
+    ends: list[float] = []
+    out = []
+    for p in placed:
+        k = next((i for i, e in enumerate(ends) if e <= p[1] + 1e-6), len(ends))
+        if k == len(ends):
+            ends.append(0.0)
+        ends[k] = p[1] + p[3]
+        out.append(k)
+    return out
+
+
+def place(out: Path, files: list[tuple[Asset, Path]], derush_xml: Path | None = None, edit_xml: Path | None = None,
+          edit_sequence: str | None = None, log=print) -> Path:
+    """Premiere XML of the exported files at their sentences: a B-roll-only sequence, and a copy of the
+    edit (or of `3 derush`) with the B-roll on tracks above. Without timings, one after the other."""
+    manifest = Manifest.load(out / "manifest.json")
+    target = read_sequence(edit_xml, edit_sequence, prefer="derush") if edit_xml else None
+    placed, ref, timed = layout(out, [(a.sentence, p) for a, p in files], derush_xml, target, log)
+    fps, size = (ref.fps, ref.size) if ref else (Fraction(25), (1920, 1080))
+    markers = []
     for p in placed:
         if not markers or markers[-1][1] != p[5]:
             markers.append((p[1], p[5]))
@@ -405,14 +433,11 @@ def place(out: Path, files: list[tuple[Asset, Path]], derush_xml: Path | None = 
     xml_path = out / "export" / f"{slug(manifest.title, 60)} B-roll.xml"
     shared: dict[Path, str] = {}
     seqs = [broll_sequence(f"{name} B-roll", placed, fps, size, markers, files=shared)]
-    if ref and where:
+    if ref and timed:
         base = standalone_copy(ref, "edit-broll-sequence", f"{ref.name} + B-roll")
         seqs.append(broll_sequence("", placed, fps, size, [], base=base, files=shared, prefix="edit-broll"))
     write_document(xml_path, seqs, f"{name} B-roll")
-    if missing:
-        log(f"  {missing} élément(s) dont la phrase n'est pas dans « {ref.name} » (coupée au montage ?) : "
-            "exportés mais pas placés")
-    if ref and where and placed:
+    if ref and timed and placed:
         first = min(p[1] for p in placed)
         log(f"  « {name} B-roll » : les illustrations seules, aux timecodes de « {ref.name} ».\n"
             f"     Pour les coller dans votre montage : tout sélectionner, copier, puis dans « {ref.name} »\n"

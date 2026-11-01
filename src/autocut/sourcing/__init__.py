@@ -168,6 +168,9 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--edit", type=Path, help="current edit exported from Premiere (FCP7 XML): the B-roll follows "
                                              "the sentences wherever they are in it")
     e.add_argument("--edit-sequence", help="sequence of --edit to use (default: its only or last one)")
+    pr = sub.add_parser("premiere", help="serve the Premiere panel (premiere/ folder) for this output folder")
+    pr.add_argument("folder", type=Path)
+    pr.add_argument("--derush", type=Path, help="part 1 .autocut.xml")
     return ap
 
 
@@ -195,6 +198,16 @@ def main() -> None:
             _serve_forever(out, None)
     elif args.cmd == "sheet":
         _serve_forever(args.folder, args.derush, args.edit)
+    elif args.cmd == "premiere":
+        from .bridge import PORT, start
+        if not start(lambda: (args.folder, args.derush)):
+            raise SystemExit(f"port {PORT} déjà pris : Autocut est-il déjà ouvert ?")
+        print(f"Panneau Premiere servi sur le port {PORT} (Ctrl+C pour arrêter)")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
     else:
         from .export import export
         export(args.folder, args.derush, args.edit, args.edit_sequence)

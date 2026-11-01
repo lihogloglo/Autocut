@@ -139,3 +139,37 @@ def test_broll_on_top_of_the_edit(tmp_path):
     assert link_tracks == [2, 3]                 # after the edit's own audio track
     defs = [f.get("id") for f in root.iter("file") if len(f)]
     assert len(defs) == len(set(defs)) == 3      # each file defined once in the whole XML
+
+
+def test_panel_sequence_and_lanes(tmp_path):
+    """The Premiere panel sends the open sequence as JSON: same placement as the exported XML."""
+    from autocut.sourcing.bridge import exported_files
+    from autocut.sourcing.export import lanes
+    from autocut.sourcing.place import _key, place_sentences, read_sequence, seq_from_panel
+    derush = tmp_path / "x.autocut.xml"
+    derush.write_text("<xmeml version='5'><project><children>"
+                      + _seq("x 3 derush", [_clip("b", "rec", 0, 100, 250), _clip("c", "rec", 100, 175, 750, False)],
+                             "<marker><name>S001 T1/1 · un</name><in>0</in><out>100</out></marker>"
+                             "<marker><name>S002 T1/1 · deux</name><in>100</in><out>175</out></marker>")
+                      + "</children></project></xmeml>", encoding="utf-8")
+    d = read_sequence(derush, prefer="derush")
+    rec = d.items[0].file
+    # the edit as the panel reads it: S002 first at 2 s, S001 at 6 s (seconds, source in from media start)
+    panel = {"name": "Montage", "fps": 25, "items": [{"start": 2, "end": 5, "in": 30, "path": rec},
+                                                     {"start": 6, "end": 10, "in": 10, "path": rec.upper()}]}
+    edit = seq_from_panel(panel)
+    assert edit.items[1].file == _key(Path(rec))         # paths compared like the XML's
+    where = place_sentences(d, edit)
+    assert {k: tuple(round(x, 2) for x in v) for k, v in where.items()} == {0: (6.0, 10.0), 1: (2.0, 5.0)}
+
+    img = MediaInfo(tmp_path / "a.jpg", 3600.0, Fraction(25), 4000, 3000, 0, 48000)
+    placed = [(img, 0.0, 0.0, 4.0, True, ""), (img, 1.0, 0.0, 2.0, True, ""), (img, 3.5, 0.0, 2.0, True, ""),
+              (img, 4.0, 0.0, 2.0, True, "")]
+    assert lanes(placed) == [0, 1, 1, 0]                 # alternatives stack, the rest goes back down
+
+    sec = tmp_path / "export" / "02 Section"
+    sec.mkdir(parents=True)
+    for name in ("S014-01 page - a.jpg", "S014-02 web - b.png", "S014-03 x.mp4.part", "credits.txt"):
+        (sec / name).write_bytes(b"")
+    assert [(s, p.name) for s, p in exported_files(tmp_path)] == [(13, "S014-01 page - a.jpg"),
+                                                                    (13, "S014-02 web - b.png")]

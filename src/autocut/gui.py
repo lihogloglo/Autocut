@@ -229,6 +229,9 @@ class App:
         book.add(self.derush, text="  1. Synchro & derush  ")
         book.add(self.sources, text="  2. Illustrations  ")
         book.select(tab)
+        from .sourcing import bridge
+        self.bridge = bridge.start(lambda: (self.sources._out(),
+                                            Path(self.sources.derush) if self.sources.derush else None))
 
     def mainloop(self) -> None:
         self.root.mainloop()
