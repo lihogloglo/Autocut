@@ -1,0 +1,28 @@
+[project]
+name = "autocut"
+version = "0.1.0"
+description = "Derush long talking-head recordings against their script, for Premiere Pro"
+readme = "README.md"
+authors = [
+    { name = "lihogloglo", email = "metzook@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "faster-whisper>=1.2.1",
+    "num2words>=0.5.14",
+    "numpy>=2.5.4",
+    "nvidia-cublas-cu12==12.4.5.8 ; sys_platform == 'win32'",
+    "python-docx>=1.2.0",
+    "rapidfuzz>=3.14.6",
+    "static-ffmpeg>=3.0",
+]
+
+[project.scripts]
+autocut = "autocut:main"
+
+[project.gui-scripts]
+autocut-gui = "autocut.gui:main"
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"

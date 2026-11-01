@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# outputs written next to the user's media
+*.transcript.json
+*.derush.xml
+*.backup.xml
+*.review.xml
+*.derush.txt
