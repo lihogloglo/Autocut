@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -54,13 +55,23 @@ def paragraphs(doc: ScriptDoc) -> dict[int, list[ScriptSentence]]:
     return out
 
 
-def _entities(sentences: list[ScriptSentence]) -> list[str]:
+def _proper_nouns(doc: ScriptDoc) -> set[str]:
+    """Capitalised words seen in the middle of a sentence (or as a link anchor) somewhere in the script:
+    a capital at the start of a sentence alone says nothing ("Evidemment", "Commençons")."""
+    out = set()
+    for s in doc.sentences:
+        out |= set(re.findall(r"(?<=[\w,;’')»] )([A-ZÀÂÉÈÊÎÔÛÇ][\w’'\-]+)", s.text))
+        out |= {w for link in s.links for w in link.anchor.split() if w[:1].isupper()}
+    return {w for w in out if w.lower() not in STOP_START}
+
+
+def _entities(sentences: list[ScriptSentence], proper: set[str]) -> list[str]:
     found = []
     for s in sentences:
         for m in _CAP.finditer(s.text):
             words = m.group().split()
-            if m.start() == 0 or s.text[:m.start()].rstrip().endswith((".", "!", "?", ":", "«", "\"", "-")):
-                while words and words[0].lower().strip("’'") in STOP_START:
+            if m.start() == 0 or s.text[:m.start()].rstrip().endswith((".", "!", "?", ":", "«", "\"", "-", "(")):
+                while words and words[0] not in proper:
                     words = words[1:]
             name = " ".join(words).strip("’'-")
             if len(name) > 2 and name.lower() not in STOP_START:
@@ -80,33 +91,45 @@ def _wiki_titles(sentences: list[ScriptSentence]) -> list[tuple[str, str]]:
 
 
 def heuristic_queries(doc: ScriptDoc) -> list[Query]:
+    """Queries from what a paragraph names: proper nouns, years, cited Wikipedia titles. Paragraphs that
+    name nothing concrete get no query (keywords alone bring back noise); an LLM does better there."""
+    from .collect import VIDEO_HOSTS
     pars = paragraphs(doc)
-    doc_freq = Counter()
-    words_of = {}
-    for p, ss in pars.items():
-        ws = [w.lower() for s in ss for w in re.findall(r"[\wÀ-ÿ’'-]{6,}", s.text)]
-        ws = [w for w in ws if w not in STOP and not w.isdigit()]
-        words_of[p] = ws
-        doc_freq.update(set(ws))
+    proper = _proper_nouns(doc)
+    # A name found all over the script ("France", "État") is the topic, not what this paragraph shows.
+    spread = Counter(e for ss in pars.values() for e in set(_entities(ss, proper)))
+    common = {e for e, n in spread.items() if n > max(3, len(pars) * 0.06)}
     out = []
-    for p, ss in pars.items():
+    order = sorted(pars)
+    for k, p in enumerate(order):
+        ss = pars[p]
         text = " ".join(s.text for s in ss)
-        ents = _entities(ss)
+        ents = [e for e in _entities(ss, proper) if e not in common]
         years = list(dict.fromkeys(_YEAR.findall(text)))
-        tf = Counter(words_of[p])
-        keys = sorted(tf, key=lambda w: -tf[w] / (1 + doc_freq[w]))[:3]
         wiki = _wiki_titles(ss)
         fr = []
         if ents:
             fr.append(" ".join(ents[:2] + years[:1]))
-        fr.append(" ".join((ents[:1] + keys[:2]) or keys[:3]))
-        en = [t for lang, t in wiki if lang == "en"][:2] + ents[:1]
-        wants_video = any(re.match(r"extrait", n, re.I) for s in ss for n in s.notes)
+        fr += [t for lang, t in wiki if lang == "fr"][:1]
+        # a lone name is ambiguous ("Chili" = Chile, but also chili peppers): give it its context
+        en = [t for lang, t in wiki if lang == "en"][:2] + ([" ".join(ents[:2] + years[:1])] if ents else [])
+
         vq = None
-        if wants_video:
-            note = next(n for s in ss for n in s.notes if re.match(r"extrait", n, re.I))
-            subject = note[len("extrait"):].strip() or " ".join(ents[:2] or keys[:2])
-            vq = f"{subject} {' '.join(keys[:2])}".strip()
+        note = next((n for s in ss for n in s.notes if re.match(r"extraits?\b", n, re.I)), None)
+        if note:
+            # "(extrait)" alone refers to what was just said: the previous paragraph's subject
+            prev = pars[order[k - 1]] if k else []
+            near = ss + prev
+            has_video = any(VIDEO_HOSTS.search(link.url) and "reddit.com" not in link.url
+                            for s in near for link in s.links)
+            subject = re.sub(r"^extraits?\s*", "", note, flags=re.I).strip()
+            if not subject:
+                subject = " ".join((ents or _entities(prev, proper))[:2] + years[:1])
+            if subject and not (has_video and not re.sub(r"^extraits?\s*", "", note, flags=re.I).strip()):
+                vq = subject
+            if has_video and subject and any(subject.lower() in link.anchor.lower()
+                                             for s in near for link in s.links):
+                vq = None   # the cited video is the excerpt
         out.append(Query(p, ss[0].idx, text, [q for q in dict.fromkeys(fr) if q.strip()],
                          [q for q in dict.fromkeys(en) if q.strip()], vq))
     return out
@@ -209,7 +232,7 @@ def llm_queries(queries: list[Query], mode: str, log=print) -> str:
 # --- Sources ------------------------------------------------------------------------------------
 
 def _strip(s: str) -> str:
-    return " ".join(re.sub(r"<[^>]+>", " ", s or "").split())
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", s or "")).split())
 
 
 def commons(ctx: Ctx, q: str, n: int = 12) -> list[tuple[Asset, str]]:

@@ -1,17 +1,38 @@
 # autocut
 
 Sync camera and recorder files by sound, derush a long talking-head recording
-against its script, and get one Premiere Pro XML back with three sequences.
-Runs fully locally (faster-whisper on the GPU, or the CPU when there is no NVIDIA
-card — much slower).
+against its script, and get one Premiere Pro XML back with three sequences. Then
+gather illustrations from the script's links and place them on the edit at the
+sentences they illustrate. Runs locally (faster-whisper on the GPU, or the CPU when
+there is no NVIDIA card — much slower).
+
+## The pipeline: every step works alone
+
+| Step | In | Out | Alone? |
+|---|---|---|---|
+| Sync | rushes (camera + .wav) | `1 sync` sequence | yes: no script |
+| Derush | sync result, or a sequence you synced yourself (FCP7 XML) + script | `2 triage`, `3 derush` | yes: give the Premiere XML |
+| Illustrations: collect + pick | script (.md with links) | contact sheet, files per section, credits | yes: no derush needed |
+| Illustrations: place | picks + `.autocut.xml` and/or your current edit (FCP7 XML) | B-roll at the sentence timecodes | re-run any time after re-editing |
+
+The link between steps is the `Sxxx` sentence number: part 1 writes it in a marker over
+every take, part 2 files every illustration under it.
 
 ## Window (for everyone)
 
-Double-click **`Autocut.bat`**. The first time it installs what it needs (uv,
-Python packages, ffmpeg if missing) and the transcription model downloads on the
-first run (~3 GB). Then: add the rushes (camera videos + recorder .wav, or their
-folder — or a sequence exported from Premiere), pick the script, press **Lancer**.
-Without a script, only the sync is made.
+Double-click **`Autocut.bat`** once: it installs what it needs (uv, Python packages, ffmpeg if
+missing), puts an **Autocut** shortcut on the desktop and opens the window (one tab per step).
+Afterwards, use the shortcut. The transcription model downloads on the first run (~3 GB).
+
+Files are dropped on the window (or picked with **Fichiers…**); each one goes where it belongs
+by its type. The next step's button is highlighted, with one line saying what it does;
+settings and the log are folded away (**▸ Réglages**, **▸ Détails**).
+
+1. **Synchro & derush**: drop the rushes (camera videos + recorder .wav, or their folder — or
+   a sequence exported from Premiere) and the script, press **Lancer**. Without a script,
+   only the sync is made. When done, the illustrations tab picks up the `.autocut.xml` and
+   the script.
+2. **Illustrations**: see [B-roll sourcing](#b-roll-sourcing-part-2).
 
 To give it to someone: copy this folder without `.venv`, `research_notes` and
 `reports`.
@@ -112,8 +133,10 @@ Script: `.txt`, `.md` or `.docx`. Headings, links, URLs and `[1]` citations are 
 
 ## B-roll sourcing (part 2)
 
-Double-click **`Sources.bat`**, pick the Markdown script, press **1. Collecter**, then
-**2. Ouvrir la planche**. Click the thumbnails to keep, then **Exporter la sélection**.
+In the **Illustrations** tab: drop the Markdown script (and the `.autocut.xml` / your edit), press
+**1. Collecter**, then **2. Choisir** (opens the contact sheet). Click the thumbnails to keep, then
+**Exporter la sélection**. After re-editing in Premiere, **3. Placer sur le montage**
+puts the same picks on the new edit (nothing is downloaded again).
 
 For every `[text](url)` in the script:
 
@@ -124,7 +147,7 @@ For every `[text](url)` in the script:
 | PDF | the pages that match the sentence (and `(page 9)` / `[page 23](…)` hints) rendered as images, plus the figures inside |
 | Video (YouTube, Facebook…) | the excerpt: `t=` in the link, else the minute whose captions match the sentence, or the whole video when short |
 | Our World in Data, Archive.org | the chart (CC BY) / the item |
-| Any page | 4K screenshots: top of page, the passage that supports the sentence, and the same passage highlighted |
+| Any page | tall screenshots (3840 × 4800 by default, room to pan): top of page, the passage that supports the sentence (at ~40 % of the height), and the same passage highlighted |
 
 Then a search per paragraph (names, dates, keywords; or Ollama/Claude queries):
 Wikimedia Commons, Europeana, DuckDuckGo images (unknown rights), and YouTube for
@@ -134,15 +157,25 @@ Rights badges: **libre** (public domain / CC, credit needed), **citation** (scre
 or excerpt), **à vérifier** (unknown, NC/ND), **protégé** (agency or stock site detected).
 
 Export (`<script> - sources\export`): one folder per `##` section (import the folder in
-Premiere: one bin per section), `credits.txt` ready for the video description,
-`credits.csv`, and `<title> B-roll.xml`: a sequence with the picks at the derush
-times when the part 1 `.autocut.xml` is given (from its `Sxxx` markers), else one after
-the other.
+Premiere: one bin per section; files are named `S014-01 …` after their sentence),
+`credits.txt` ready for the video description, `credits.csv`, and `<title> B-roll.xml`
+with two sequences:
+
+| Sequence | What |
+|---|---|
+| `<title> B-roll` | the illustrations alone, each starting on its sentence, images lasting as long as the sentence (3–12 s); alternatives for one sentence stacked on V1, V2… To paste into your edit: select all, copy, put the playhead at the timecode the log gives, target V2, paste. |
+| `<sequence> + B-roll` | a copy of `3 derush` (or of your edit) with the illustrations on the tracks above: open it and keep editing. |
+
+Timings: give the part 1 `.autocut.xml` (its `Sxxx` markers say where each sentence is in
+the rushes). Give also your **current edit** (Premiere: File → Export → Final Cut Pro XML)
+and each sentence is found again wherever it is now — re-cut, reordered, another take
+kept — by matching the rush time under it. Sentences cut out of the edit are reported;
+their files are still exported. Without any XML, the illustrations go one after the other.
 
 ```
-uv run autocut-sources collect "episode 12.md" [--no-shots] [--no-search] [--no-web] [--llm off|ollama|claude]
-uv run autocut-sources sheet "episode 12 - sources" [--derush "episode 12.autocut.xml"]
-uv run autocut-sources export "episode 12 - sources" [--derush …]
+uv run autocut-sources collect "episode 12.md" [--no-shots] [--no-search] [--no-web] [--llm off|ollama|claude] [--shot-height 2400]
+uv run autocut-sources sheet "episode 12 - sources" [--derush "episode 12.autocut.xml"] [--edit "montage.xml"]
+uv run autocut-sources export "episode 12 - sources" [--derush …] [--edit "montage.xml" [--edit-sequence name]]
 ```
 
 Everything is cached in the output folder: re-running is fast and keeps the selection.

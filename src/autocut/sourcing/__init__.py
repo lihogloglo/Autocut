@@ -51,7 +51,7 @@ def _page_hints(doc: ScriptDoc) -> tuple[dict[str, list], dict[str, set[int]]]:
 
 def collect(script: Path, out: Path | None = None, *, shots: bool = True, search: bool = True, web: bool = True,
             videos: bool = True, llm: str = "auto", seg_len: float = 30, full_video_max: float = 600,
-            log=print) -> Path:
+            shot_height: int = 2400, log=print) -> Path:
     """Harvest everything into <out>/manifest.json and write the contact sheet. Returns the output folder."""
     t0 = time.time()
     doc = parse_script(script)
@@ -65,7 +65,7 @@ def collect(script: Path, out: Path | None = None, *, shots: bool = True, search
     worker = None
     if shots:
         from .shots import Job, ScreenshotWorker
-        worker = ScreenshotWorker(ctx, log)
+        worker = ScreenshotWorker(ctx, log, shot_height)
         worker.start()
 
     assets: list[Asset] = []
@@ -155,19 +155,25 @@ def build_parser() -> argparse.ArgumentParser:
                    help="query generation: Ollama if running, else Claude if ANTHROPIC_API_KEY is set, else heuristic")
     c.add_argument("--segment", type=float, default=30, help="video excerpt length (s)")
     c.add_argument("--full-video-max", type=float, default=600, help="download whole videos up to this length (s)")
+    c.add_argument("--shot-height", type=int, default=2400,
+                   help="page screenshot height in page pixels, 1920 wide (the image is twice that: 3840 x 4800)")
     c.add_argument("--serve", action="store_true", help="open the contact sheet when done")
     s = sub.add_parser("sheet", help="open the contact sheet of an output folder")
     s.add_argument("folder", type=Path)
-    s.add_argument("--derush", type=Path, help="part 1 XML, to place the B-roll at the sentence times")
-    e = sub.add_parser("export", help="export the current selection")
+    s.add_argument("--derush", type=Path, help="part 1 .autocut.xml, to place the B-roll at the sentence times")
+    s.add_argument("--edit", type=Path, help="current edit exported from Premiere (FCP7 XML): place on it instead")
+    e = sub.add_parser("export", help="export the current selection (again: re-places it, e.g. on a newer edit)")
     e.add_argument("folder", type=Path)
-    e.add_argument("--derush", type=Path)
+    e.add_argument("--derush", type=Path, help="part 1 .autocut.xml (its Sxxx markers give the sentence times)")
+    e.add_argument("--edit", type=Path, help="current edit exported from Premiere (FCP7 XML): the B-roll follows "
+                                             "the sentences wherever they are in it")
+    e.add_argument("--edit-sequence", help="sequence of --edit to use (default: its only or last one)")
     return ap
 
 
-def _serve_forever(folder: Path, derush: Path | None) -> None:
+def _serve_forever(folder: Path, derush: Path | None, edit: Path | None = None) -> None:
     from .sheet import serve
-    server, url = serve(folder, derush)
+    server, url = serve(folder, derush, edit=edit)
     print(f"Planche : {url}  (Ctrl+C pour arrêter)")
     try:
         while True:
@@ -184,11 +190,11 @@ def main() -> None:
     if args.cmd == "collect":
         out = collect(args.script, args.out, shots=not args.no_shots, search=not args.no_search,
                       web=not args.no_web, videos=not args.no_videos, llm=args.llm, seg_len=args.segment,
-                      full_video_max=args.full_video_max)
+                      full_video_max=args.full_video_max, shot_height=args.shot_height)
         if args.serve:
             _serve_forever(out, None)
     elif args.cmd == "sheet":
-        _serve_forever(args.folder, args.derush)
+        _serve_forever(args.folder, args.derush, args.edit)
     else:
         from .export import export
-        export(args.folder, args.derush)
+        export(args.folder, args.derush, args.edit, args.edit_sequence)

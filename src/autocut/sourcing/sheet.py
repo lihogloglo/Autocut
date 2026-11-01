@@ -17,24 +17,24 @@ PAGE = "planche.html"
 
 
 class _State:
-    def __init__(self, out: Path, derush: Path | None):
-        self.out, self.derush = out, derush
+    def __init__(self, out: Path, derush: Path | None, edit: Path | None = None):
+        self.out, self.derush, self.edit = out, derush, edit
         self.log: list[str] = []
         self.running = False
         self.result = ""
         self.lock = threading.Lock()
 
-    def start_export(self, derush: str | None) -> bool:
+    def start_export(self, derush: str | None, edit: str | None = None) -> bool:
         with self.lock:
             if self.running:
                 return False
             self.running, self.log, self.result = True, [], ""
-        if derush:
-            self.derush = Path(derush)
+        self.derush = Path(derush) if derush else None
+        self.edit = Path(edit) if edit else None
 
         def work():
             try:
-                self.result = str(export(self.out, self.derush, log=self.log.append))
+                self.result = str(export(self.out, self.derush, self.edit, log=self.log.append))
             except Exception as e:
                 self.log.append(f"ERREUR : {e}")
                 self.log.append(traceback.format_exc(limit=3))
@@ -67,7 +67,7 @@ class _Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/status":
             s = self.state
             return self._json({"running": s.running, "log": s.log[-400:], "result": s.result,
-                               "derush": str(s.derush or "")})
+                               "derush": str(s.derush or ""), "edit": str(s.edit or "")})
         return super().do_GET()
 
     def do_POST(self):
@@ -79,7 +79,7 @@ class _Handler(SimpleHTTPRequestHandler):
             tmp.replace(s.out / "selection.json")
             return self._json({"ok": True})
         if self.path == "/api/export":
-            return self._json({"ok": s.start_export(data.get("derush") or None)})
+            return self._json({"ok": s.start_export(data.get("derush") or None, data.get("edit") or None)})
         if self.path == "/api/open":
             target = Path(s.result) if s.result else s.out
             if hasattr(os, "startfile"):
@@ -94,9 +94,10 @@ def write_page(out: Path) -> Path:
     return path
 
 
-def serve(out: Path, derush: Path | None = None, open_browser: bool = True) -> tuple[ThreadingHTTPServer, str]:
+def serve(out: Path, derush: Path | None = None, open_browser: bool = True,
+          edit: Path | None = None) -> tuple[ThreadingHTTPServer, str]:
     write_page(out)
-    handler = type("Handler", (_Handler,), {"state": _State(out, derush)})
+    handler = type("Handler", (_Handler,), {"state": _State(out, derush, edit)})
     server = ThreadingHTTPServer(("127.0.0.1", 0), partial(handler, directory=str(out)))
     url = f"http://127.0.0.1:{server.server_address[1]}/{PAGE}"
     threading.Thread(target=server.serve_forever, daemon=True).start()

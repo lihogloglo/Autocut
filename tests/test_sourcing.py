@@ -71,3 +71,71 @@ def test_sentence_times_spans(tmp_path):
     p.write_text(xml, encoding="utf-8")
     times, *_ = sentence_times(p)
     assert times == {2: 4.0, 3: 6.0}
+
+
+def _clip(cid, fid, start, end, src_in, full=True):
+    f = (f"<file id='{fid}'><name>{fid}.wav</name><pathurl>file://localhost/D:/rush/{fid}.wav</pathurl></file>"
+         if full else f"<file id='{fid}'/>")
+    return (f"<clipitem id='{cid}'><name>{fid}.wav</name><start>{start}</start><end>{end}</end>"
+            f"<in>{src_in}</in><out>{src_in + end - start}</out>{f}</clipitem>")
+
+
+def _seq(name, clips, markers=""):
+    return (f"<sequence id='{name}'><name>{name}</name><rate><timebase>25</timebase><ntsc>FALSE</ntsc></rate>"
+            f"<media><video><format><samplecharacteristics><width>1920</width><height>1080</height>"
+            f"</samplecharacteristics></format></video><audio><track>{''.join(clips)}</track></audio></media>"
+            f"{markers}</sequence>")
+
+
+def test_place_sentences_follow_the_edit(tmp_path):
+    from autocut.sourcing.place import place_sentences, read_sequence, standalone_copy
+    # derush: S001 = rush 10-14 s, S002 = rush 30-33 s (frames at 25 fps); a sync sequence defines the file first
+    derush = tmp_path / "x.autocut.xml"
+    derush.write_text("<xmeml version='5'><project><children>"
+                      + _seq("x 1 sync", [_clip("a", "rec", 0, 2500, 0)])
+                      + _seq("x 3 derush", [_clip("b", "rec", 0, 100, 250, False), _clip("c", "rec", 100, 175, 750, False)],
+                             "<marker><name>S001 T1/1 · un</name><in>0</in><out>100</out></marker>"
+                             "<marker><name>S002 T1/1 · deux</name><in>100</in><out>175</out></marker>")
+                      + "</children></project></xmeml>", encoding="utf-8")
+    d = read_sequence(derush, prefer="derush")
+    assert d.name == "x 3 derush" and len(d.items) == 2
+    assert place_sentences(d) == {0: (0.0, 4.0), 1: (4.0, 7.0)}
+    # the edit: S002 moved first at 2 s, S001 after a 1 s gap
+    edit = tmp_path / "edit.xml"
+    edit.write_text("<xmeml version='5'>" + _seq("Montage", [_clip("e1", "rec", 50, 125, 750),
+                                                             _clip("e2", "rec", 150, 250, 250)]) + "</xmeml>",
+                    encoding="utf-8")
+    where = place_sentences(d, read_sequence(edit))
+    assert {k: tuple(round(x, 2) for x in v) for k, v in where.items()} == {0: (6.0, 10.0), 1: (2.0, 5.0)}
+    # a copy of the derush alone in a new XML defines the rush file itself
+    copy = standalone_copy(d, "c", "copie")
+    files = copy.findall(".//file")
+    assert files[0].find("pathurl") is not None and len(files[1]) == 0
+
+
+def test_broll_on_top_of_the_edit(tmp_path):
+    from autocut.sourcing.place import read_sequence, standalone_copy
+    edit = tmp_path / "edit.xml"
+    edit.write_text("<xmeml version='5'>" + _seq("Montage", [_clip("e1", "rec", 0, 250, 0)]) + "</xmeml>",
+                    encoding="utf-8")
+    ref = read_sequence(edit)
+    img = MediaInfo(tmp_path / "a.jpg", 3600.0, Fraction(25), 4000, 3000, 0, 48000)
+    vid = MediaInfo(tmp_path / "b.mp4", 20.0, Fraction(25), 1920, 1080, 2, 48000)
+    placed = [(img, 1.0, 0.0, 3.0, True, "S001"), (vid, 2.0, 0.0, 4.0, False, "S002")]
+    shared = {}
+    alone = broll_sequence("B-roll", placed, Fraction(25), (1920, 1080), [(1.0, "S001")], files=shared)
+    both = broll_sequence("", placed, Fraction(25), (1920, 1080), [],
+                          base=standalone_copy(ref, "eb", "Montage + B-roll"), files=shared, prefix="eb")
+    out = tmp_path / "b.xml"
+    write_document(out, [alone, both], "B-roll")
+    root = ET.parse(out).getroot()
+    seqs = root.findall(".//sequence")
+    assert [s.findtext("name") for s in seqs] == ["B-roll", "Montage + B-roll"]
+    v = seqs[1].findall("media/video/track")
+    a = seqs[1].findall("media/audio/track")
+    assert len(v) == 2 and len(a) == 3           # 2 B-roll lanes (they overlap); edit's A1 + the video's stereo
+    link_tracks = sorted(int(ln.findtext("trackindex")) for ln in v[1].find("clipitem").findall("link")
+                         if ln.findtext("mediatype") == "audio")
+    assert link_tracks == [2, 3]                 # after the edit's own audio track
+    defs = [f.get("id") for f in root.iter("file") if len(f)]
+    assert len(defs) == len(set(defs)) == 3      # each file defined once in the whole XML

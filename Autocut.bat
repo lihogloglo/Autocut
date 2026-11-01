@@ -19,4 +19,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+rem Desktop shortcut to the window itself: after the first run, this file is only needed to update.
+if not exist "%USERPROFILE%\Desktop\Autocut.lnk" powershell -NoProfile -Command ^
+  "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('Desktop')+'\Autocut.lnk');" ^
+  "$s.TargetPath='%~dp0.venv\Scripts\autocut-gui.exe'; $s.WorkingDirectory='%~dp0'; $s.Save()"
+
 start "" ".venv\Scripts\autocut-gui.exe"

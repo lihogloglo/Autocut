@@ -19,9 +19,11 @@ from ..media import MediaInfo, ensure_ffmpeg, probe
 from ..xmeml import PPRO_TICKS, add_marker, el, file_element, rate, write_document
 from .fetch import Fetcher
 from .model import Asset, Manifest
+from .place import place_sentences, read_sequence, standalone_copy
 
 PREMIERE_IMAGE = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".psd"}
-STILL_SECONDS = 5.0
+STILL_SECONDS = 5.0                  # images placed one after the other (no timings)
+MIN_STILL_SECONDS, MAX_STILL_SECONDS = 3.0, 12.0   # images placed on their sentence
 MAX_CLIP_SECONDS = 60.0
 
 
@@ -57,7 +59,9 @@ def _commons_render(fetch: Fetcher, a: Asset, width: int = 3840) -> str | None:
 
 def download_image(fetch: Fetcher, a: Asset, dst_stem: Path) -> Path:
     url = a.url
-    if a.via in ("wikipedia", "commons") and (a.note in ("svg", "tiff") or max(a.width, a.height) > 8000):
+    ext = Path(urlparse(url).path).suffix.lower()
+    if a.via in ("wikipedia", "commons") and (ext not in (".jpg", ".jpeg", ".png") or max(a.width, a.height) > 8000):
+        # SVG, TIFF, DjVu, PDF, WebP… or huge: let Wikimedia render a 3840 px JPEG/PNG
         url = _commons_render(fetch, a) or url
     r = fetch.get(url, cache=False, timeout=180)
     if not r.ok:
@@ -107,7 +111,8 @@ def credit_line(a: Asset) -> str:
         bits = [f"Capture d'écran : {a.title}"]
     if a.licence:
         bits.append(a.licence + (f" ({a.licence_url})" if a.licence_url and a.licence_url not in a.licence else ""))
-    bits.append(a.source_page or a.url)
+    page = re.sub(r"[?&]utm_[^&#]*", "", a.source_page or a.url)
+    bits.append(re.sub(r"^([^?]*)&", lambda m: m.group(1) + "?", page))
     return " — ".join(b for b in bits if b)
 
 
@@ -147,33 +152,54 @@ def sentence_times(xml_path: Path) -> tuple[dict[int, float], Fraction, tuple[in
 
 
 def broll_sequence(name: str, placed: list[tuple[MediaInfo, float, float, float, bool, str]],
-                   fps: Fraction, size: tuple[int, int], markers: list[tuple[float, str]]) -> ET.Element:
-    """placed: (media, start in sequence, source in, length, is_still, label), all in seconds."""
+                   fps: Fraction, size: tuple[int, int], markers: list[tuple[float, str]],
+                   base: ET.Element | None = None, files: dict[Path, str] | None = None,
+                   prefix: str = "broll") -> ET.Element:
+    """placed: (media, start in sequence, source in, length, is_still, label), all in seconds.
+    With `base` (a standalone sequence, e.g. the edit), the B-roll goes on new tracks above its own.
+    `files` is shared between the sequences of one XML: each file is defined once, at first use."""
     tpf = PPRO_TICKS / float(fps)
     fr = lambda s: round(s * float(fps))   # noqa: E731
-    seq = ET.Element("sequence", id="broll-sequence")
-    el(seq, "name", name)
-    el(seq, "duration", max((fr(p[1] + p[3]) for p in placed), default=0))
-    rate(seq, fps)
-    media = el(seq, "media")
-    video = el(media, "video")
-    vsc = el(el(video, "format"), "samplecharacteristics")
-    el(vsc, "width", size[0])
-    el(vsc, "height", size[1])
-    el(vsc, "pixelaspectratio", "square")
-    rate(vsc, fps)
-    audio = el(media, "audio")
-    el(audio, "numOutputChannels", 2)
-    asc = el(el(audio, "format"), "samplecharacteristics")
-    el(asc, "depth", 16)
-    el(asc, "samplerate", 48000)
+    files = {} if files is None else files
+    end = max((fr(p[1] + p[3]) for p in placed), default=0)
+    if base is not None:
+        seq = base
+        video, audio = seq.find("media/video"), seq.find("media/audio")
+        dur = seq.find("duration")
+        if dur is not None:
+            dur.text = str(max(int(dur.text or 0), end))
+    else:
+        seq = ET.Element("sequence", id=f"{prefix}-sequence")
+        el(seq, "name", name)
+        el(seq, "duration", end)
+        rate(seq, fps)
+        media = el(seq, "media")
+        video = el(media, "video")
+        vsc = el(el(video, "format"), "samplecharacteristics")
+        el(vsc, "width", size[0])
+        el(vsc, "height", size[1])
+        el(vsc, "pixelaspectratio", "square")
+        rate(vsc, fps)
+        audio = el(media, "audio")
+        el(audio, "numOutputChannels", 2)
+        asc = el(el(audio, "format"), "samplecharacteristics")
+        el(asc, "depth", 16)
+        el(asc, "samplerate", 48000)
+    v_before, a_before = len(video.findall("track")), len(audio.findall("track"))
 
     lanes: list[float] = []               # end time per video track
     vtracks: list[ET.Element] = []
     atracks: dict[tuple[int, int], ET.Element] = {}
-    files: dict[Path, str] = {}
     counts: dict[int, int] = {}
     ids = iter(range(1, 10 ** 9))
+
+    def new_track(parent: ET.Element, **attrs) -> ET.Element:
+        """A track right after the existing ones, so the base's tracks keep their numbers."""
+        t = ET.Element("track", {k: str(v) for k, v in attrs.items()})
+        kids = list(parent)
+        last = max((i for i, c in enumerate(kids) if c.tag == "track"), default=None)
+        parent.insert(len(kids) if last is None else last + 1, t)
+        return t
 
     def lane_for(start: float, length: float) -> int:
         for i, end in enumerate(lanes):
@@ -181,18 +207,17 @@ def broll_sequence(name: str, placed: list[tuple[MediaInfo, float, float, float,
                 lanes[i] = start + length
                 return i
         lanes.append(start + length)
-        vtracks.append(el(video, "track"))
+        vtracks.append(new_track(video))
         return len(lanes) - 1
 
     def file_ref(m: MediaInfo) -> ET.Element:
         if m.path in files:
             return ET.Element("file", id=files[m.path])
-        files[m.path] = f"file-{len(files) + 1}"
-        f = file_element(m, files[m.path], fps)
-        return f
+        files[m.path] = f"broll-file-{len(files) + 1}"   # never clashes with the rushes' file ids
+        return file_element(m, files[m.path], fps)
 
     def clipitem(track: ET.Element, m: MediaInfo, start: float, src: float, length: float, channel: int | None):
-        attrs = {"id": f"broll-clipitem-{next(ids)}"}
+        attrs = {"id": f"{prefix}-clipitem-{next(ids)}"}
         if channel is not None:
             attrs["premiereChannelType"] = "stereo" if m.audio_channels == 2 else "mono"
         ci = el(track, "clipitem", **attrs)
@@ -218,16 +243,16 @@ def broll_sequence(name: str, placed: list[tuple[MediaInfo, float, float, float,
 
     for m, start, src, length, still, _ in placed:
         lane = lane_for(start, length)
-        group = [(*clipitem(vtracks[lane], m, start, src, length, None), "video", lane + 1)]
+        group = [(*clipitem(vtracks[lane], m, start, src, length, None), "video", v_before + lane + 1)]
         if not still:
             for ch in range(min(m.audio_channels, 2)):
                 key = (lane, ch)
                 if key not in atracks:
-                    atracks[key] = el(audio, "track", currentExplodedTrackIndex=ch,
-                                      totalExplodedTrackCount=min(m.audio_channels, 2),
-                                      premiereTrackType="Stereo" if m.audio_channels >= 2 else "Mono")
+                    atracks[key] = new_track(audio, currentExplodedTrackIndex=ch,
+                                             totalExplodedTrackCount=min(m.audio_channels, 2),
+                                             premiereTrackType="Stereo" if m.audio_channels >= 2 else "Mono")
                 ci, n = clipitem(atracks[key], m, start, src, length, ch)
-                group.append((ci, n, "audio", list(atracks).index(key) + 1))
+                group.append((ci, n, "audio", a_before + list(atracks).index(key) + 1))
         if len(group) > 1:
             for ci, *_ in group:
                 for other, n, mtype, tindex in group:
@@ -236,7 +261,7 @@ def broll_sequence(name: str, placed: list[tuple[MediaInfo, float, float, float,
                     el(ln, "mediatype", mtype)
                     el(ln, "trackindex", tindex)
                     el(ln, "clipindex", n)
-    if not vtracks:
+    if not video.findall("track"):
         el(video, "track")
     for t, label in markers:
         add_marker(seq, label, fr(t), fr(t) + 1)
@@ -245,7 +270,10 @@ def broll_sequence(name: str, placed: list[tuple[MediaInfo, float, float, float,
 
 # --- Main ---------------------------------------------------------------------------------------
 
-def export(out: Path, derush_xml: Path | None = None, full_video_max: float = 600.0, log=print) -> Path:
+def export(out: Path, derush_xml: Path | None = None, edit_xml: Path | None = None, edit_sequence: str | None = None,
+           full_video_max: float = 600.0, log=print) -> Path:
+    """Download/copy the selection into export/, write the credits and the Premiere XML. Files already
+    exported are kept, so running it again only re-places them (e.g. on a newer edit)."""
     manifest = Manifest.load(out / "manifest.json")
     selection = load_selection(out)
     chosen = [a for a in manifest.assets if a.id in selection]
@@ -305,11 +333,42 @@ def export(out: Path, derush_xml: Path | None = None, full_video_max: float = 60
                     "page", "url", "crédit", "note"])
         w.writerows(rows)
 
-    # Premiere: B-roll sequence, at the derush times when a derush XML is given.
-    times, fps, size, seq_name = {}, Fraction(25), (1920, 1080), ""
-    if derush_xml:
-        times, fps, size, seq_name = sentence_times(derush_xml)
-        log(f"  séquence derush « {seq_name} » : {len(times)} phrases repérées")
+    xml_path = place(out, files, derush_xml, edit_xml, edit_sequence, log)
+    log(f"\nFichiers : {dest}\nCrédits : {dest / 'credits.txt'}\nPremiere : {xml_path}\n"
+        "Dans Premiere : Fichier > Importer le dossier « export » (un chutier par section) et le .xml.")
+    return dest
+
+
+def _tc(seconds: float, fps: Fraction) -> str:
+    n = round(seconds * float(fps))
+    tb = round(float(fps))
+    return f"{n // (3600 * tb):02d}:{n // (60 * tb) % 60:02d}:{n // tb % 60:02d}:{n % tb:02d}"
+
+
+def place(out: Path, files: list[tuple[Asset, Path]], derush_xml: Path | None = None, edit_xml: Path | None = None,
+          edit_sequence: str | None = None, log=print) -> Path:
+    """Premiere XML of the exported files at their sentences: a B-roll-only sequence, and a copy of the
+    edit (or of `3 derush`) with the B-roll on tracks above. Without timings, one after the other."""
+    manifest = Manifest.load(out / "manifest.json")
+    sentences = {s["idx"]: s for s in manifest.sentences}
+    derush = read_sequence(derush_xml, prefer="derush") if derush_xml else None
+    target = read_sequence(edit_xml, edit_sequence, prefer="derush") if edit_xml else None
+    ref = target or derush
+    where: dict[int, tuple[float, float]] = {}
+    if derush and derush.markers:
+        where = place_sentences(derush, target)
+    elif target and target.markers:          # the edit still carries part 1's Sxxx markers
+        where = place_sentences(target)
+    elif derush_xml:                         # older part 1 XML: take info in the clip names
+        times, *_ = sentence_times(derush_xml)
+        where = {i: (t, t + STILL_SECONDS) for i, t in times.items()}
+    fps, size = (ref.fps, ref.size) if ref else (Fraction(25), (1920, 1080))
+    if ref:
+        log(f"  séquence « {ref.name} » : {len(where)} phrases repérées"
+            + (f" (via le derush « {derush.name} »)" if derush and target else ""))
+        if not where:
+            log("  aucune phrase repérée : donnez le .autocut.xml de la partie 1 (marqueurs Sxxx)")
+
     placed, markers, cursor, missing = [], [], 0.0, 0
     for a, path in files:
         try:
@@ -325,24 +384,40 @@ def export(out: Path, derush_xml: Path | None = None, full_video_max: float = 60
         except Exception as e:
             log(f"  ignoré dans le XML : {path.name} ({e})")
             continue
-        if derush_xml:
-            if a.sentence not in times:
+        if where:
+            if a.sentence not in where:
                 missing += 1
                 continue
-            start = times[a.sentence]
+            start, end = where[a.sentence]
+            if still:      # the image lasts as long as its sentence is spoken
+                length = min(MAX_STILL_SECONDS, max(MIN_STILL_SECONDS, end - start))
         else:
             start = cursor
             cursor += length
         label = f"S{a.sentence + 1:03d} · {sentences[a.sentence]['text'][:70]}"
-        if not markers or markers[-1][1] != label:
-            markers.append((start, label))
         placed.append((m, start, src, length, still, label))
-    xml_path = dest / f"{slug(manifest.title, 60)} B-roll.xml"
-    seq = broll_sequence(f"{manifest.title[:50]} B-roll", placed, fps, size, markers)
-    write_document(xml_path, [seq], f"{manifest.title[:50]} B-roll")
+    placed.sort(key=lambda p: p[1])         # takes kept in the edit may be in another order than the script
+    for p in placed:
+        if not markers or markers[-1][1] != p[5]:
+            markers.append((p[1], p[5]))
+
+    name = manifest.title[:50]
+    xml_path = out / "export" / f"{slug(manifest.title, 60)} B-roll.xml"
+    shared: dict[Path, str] = {}
+    seqs = [broll_sequence(f"{name} B-roll", placed, fps, size, markers, files=shared)]
+    if ref and where:
+        base = standalone_copy(ref, "edit-broll-sequence", f"{ref.name} + B-roll")
+        seqs.append(broll_sequence("", placed, fps, size, [], base=base, files=shared, prefix="edit-broll"))
+    write_document(xml_path, seqs, f"{name} B-roll")
     if missing:
-        log(f"  {missing} éléments sans phrase repérée dans le derush : pas placés dans la séquence (mais exportés)")
-    log(f"\nFichiers : {dest}\nCrédits : {dest / 'credits.txt'}\nPremiere : {xml_path} "
-        f"({'aux temps du derush' if derush_xml else 'à la suite, 5 s par image'})\n"
-        "Dans Premiere : Fichier > Importer le dossier « export » (un chutier par section) et le .xml.")
-    return dest
+        log(f"  {missing} élément(s) dont la phrase n'est pas dans « {ref.name} » (coupée au montage ?) : "
+            "exportés mais pas placés")
+    if ref and where and placed:
+        first = min(p[1] for p in placed)
+        log(f"  « {name} B-roll » : les illustrations seules, aux timecodes de « {ref.name} ».\n"
+            f"     Pour les coller dans votre montage : tout sélectionner, copier, puis dans « {ref.name} »\n"
+            f"     tête de lecture à {_tc(first, fps)}, piste V2 ciblée, coller.\n"
+            f"  « {ref.name} + B-roll » : votre séquence avec les illustrations sur les pistes au-dessus.")
+    elif placed:
+        log(f"  « {name} B-roll » : les illustrations à la suite (pas de derush indiqué : pas de timecodes)")
+    return xml_path

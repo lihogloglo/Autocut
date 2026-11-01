@@ -75,9 +75,11 @@ h2 { font-size: 20px; margin: 28px 0 8px; }
 #log { max-height: 260px; overflow: auto; font: 12px/1.35 Consolas, monospace; white-space: pre-wrap;
        background: var(--bg); border-radius: 6px; padding: 6px; margin: 8px 0; }
 .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
-#lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.88); display: none; z-index: 30; cursor: zoom-out; }
-#lightbox.open { display: grid; place-items: center; }
-#lightbox img { max-width: 96vw; max-height: 94vh; }
+#lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.88); display: none; z-index: 30; cursor: zoom-out;
+            overflow: auto; }
+#lightbox.open { display: block; }
+#lightbox img { display: block; margin: 2vh auto; max-width: 96vw; max-height: 96vh; }
+#lightbox.tall img { max-height: none; width: min(96vw, 1400px); }   /* tall captures: scroll through them */
 details { margin-top: 30px; color: var(--muted); }
 </style>
 </head>
@@ -108,8 +110,11 @@ details { margin-top: 30px; color: var(--muted); }
 <main id="main"><p class="empty">Chargement…</p></main>
 
 <div id="panel">
-  <label for="derush">Séquence derush (.xml de la partie 1, facultatif : place les images aux bons timecodes)</label>
+  <label for="derush">Derush (.autocut.xml de la synchro/derush, facultatif : place les images aux bons timecodes)</label>
   <input id="derush" placeholder="D:\…\projet.autocut.xml">
+  <label for="edit" style="margin-top:8px">Montage en cours (facultatif : séquence exportée de Premiere en XML Final Cut Pro ;
+    les images suivent les phrases là où elles sont maintenant)</label>
+  <input id="edit" placeholder="D:\…\mon montage.xml">
   <div id="log"></div>
   <div class="row">
     <button id="btn-open" disabled>Ouvrir le dossier</button>
@@ -142,7 +147,7 @@ async function load() {
   for (const id of Object.keys(sel)) if (!known.has(id)) delete sel[id];
   $("#title").textContent = M.title;
   document.title = "Planche — " + M.title;
-  try { const st = await (await fetch("/api/status")).json(); $("#derush").value = st.derush || ""; } catch (e) {}
+  try { const st = await (await fetch("/api/status")).json(); $("#derush").value = st.derush || ""; $("#edit").value = st.edit || ""; } catch (e) {}
   render();
 }
 
@@ -191,13 +196,15 @@ function render() {
   for (const s of M.sentences) bySentence[s.idx] = s;
   const byPar = {};
   for (const a of M.assets) if (visible(a)) (byPar[a.paragraph] ||= []).push(a);
+  const filtering = ["#f-kind", "#f-rights", "#f-origin", "#f-text"].some(s => $(s).value) || $("#f-sel").checked;
   let html = "", shown = 0;
   for (const sec of M.sections) {
     if (sec.skip) continue;
     const sents = M.sentences.filter(s => s.section === sec.idx);
-    if (!sents.length) continue;
+    let pars = [...new Set(sents.map(s => s.paragraph))];
+    if (filtering) pars = pars.filter(p => byPar[p]);
+    if (!pars.length) continue;
     html += `<h2>${esc(sec.title || "Début")}</h2>`;
-    const pars = [...new Set(sents.map(s => s.paragraph))];
     for (const p of pars) {
       const ps = sents.filter(s => s.paragraph === p);
       const assets = (byPar[p] || []).sort((x, y) => (x.origin === y.origin ? 0 : x.origin === "lien" ? -1 : 1)
@@ -234,7 +241,13 @@ function save() {
 
 document.addEventListener("click", e => {
   const zoom = e.target.closest("[data-zoom]");
-  if (zoom) { e.preventDefault(); $("#lightbox img").src = zoom.dataset.zoom; $("#lightbox").classList.add("open"); return; }
+  if (zoom) {
+    e.preventDefault();
+    const lb = $("#lightbox"), img = $("#lightbox img");
+    img.onload = () => lb.classList.toggle("tall", img.naturalHeight > img.naturalWidth * 0.75);
+    img.src = zoom.dataset.zoom; lb.scrollTop = 0; lb.classList.add("open");
+    return;
+  }
   if (e.target.closest("[data-stop]")) return;
   const c = e.target.closest(".card");
   if (!c) return;
@@ -263,7 +276,8 @@ $("#btn-close").addEventListener("click", () => $("#panel").classList.remove("op
 $("#btn-open").addEventListener("click", () => fetch("/api/open", {method: "POST", body: "{}"}));
 $("#btn-go").addEventListener("click", async () => {
   await fetch("/api/selection", {method: "POST", body: JSON.stringify(sel)});
-  await fetch("/api/export", {method: "POST", body: JSON.stringify({derush: $("#derush").value.trim().replace(/^"|"$/g, "")})});
+  await fetch("/api/export", {method: "POST", body: JSON.stringify({derush: $("#derush").value.trim().replace(/^"|"$/g, ""),
+                                                                edit: $("#edit").value.trim().replace(/^"|"$/g, "")})});
   $("#btn-go").disabled = true;
   poll();
 });

@@ -69,6 +69,8 @@ dependencies = [
     { name = "python-docx" },
     { name = "rapidfuzz" },
     { name = "static-ffmpeg" },
+    { name = "sv-ttk" },
+    { name = "tkinterdnd2" },
     { name = "yt-dlp" },
 ]
 
@@ -90,6 +92,8 @@ requires-dist = [
     { name = "python-docx", specifier = ">=1.2.0" },
     { name = "rapidfuzz", specifier = ">=3.14.6" },
     { name = "static-ffmpeg", specifier = ">=3.0" },
+    { name = "sv-ttk", specifier = ">=2.6.1" },
+    { name = "tkinterdnd2", specifier = ">=0.7.0" },
     { name = "yt-dlp", specifier = ">=2026.10.26" },
 ]
 
@@ -2036,12 +2040,30 @@ wheels = [
 ]
 
 [[package]]
+name = "sv-ttk"
+version = "2.6.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/4e/ca/9625914e7a7e58ce9f0d8d6a5eb29975bab077ce58a36cf86f863d188cd3/sv_ttk-2.6.1.tar.gz", hash = "sha256:47589d5e20398cf404e8362f24f3ed48f3830cd0ace056d83354fa25d8e4fe48", size = 49640, upload-time = "2025-06-08T16:14:21.333Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/36/32629d8bab9bccd54a36716a960ba1148fca4c1fd453370dba0b42d712ea/sv_ttk-2.6.1-py3-none-any.whl", hash = "sha256:8ca5944f95431a911986b00c54e7f44608f3f811382cd985fd14bb3e65f95d97", size = 50076, upload-time = "2025-06-08T16:14:20.402Z" },
+]
+
+[[package]]
 name = "tabulate"
 version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/46/58/8c37dea7bbf769b20d58e7ace7e5edfe65b849442b00ffcdd56be88697c6/tabulate-0.10.0.tar.gz", hash = "sha256:e2cfde8f79420f6deeffdeda9aaec3b6bc5abce947655d17ac662b126e48a60d", size = 91754, upload-time = "2026-03-04T18:55:34.402Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/99/55/db07de81b5c630da5cbf5c7df646580ca26dfaefa593667fc6f2fe016d2e/tabulate-0.10.0-py3-none-any.whl", hash = "sha256:f0b0622e567335c8fabaaa659f1b33bcb6ddfe2e496071b743aa113f8774f2d3", size = 39814, upload-time = "2026-03-04T18:55:31.284Z" },
+]
+
+[[package]]
+name = "tkinterdnd2"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e1/16/a1b4d644cd0dd4b7949228e13e587dc8720362544a5b594a56ef90cedb89/tkinterdnd2-0.7.0.tar.gz", hash = "sha256:bc5039c28092a702ee70fe15bd9b948cb579571e3b46ba4a092c9929966ca9f3", size = 738026, upload-time = "2026-10-25T12:31:43.332Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/13/73054a55222b55604846d78c2e5e0c84bbe9f35bc7d6d9697a289c905b3a/tkinterdnd2-0.7.0-py3-none-any.whl", hash = "sha256:f93d4f5ad439648ba1673f15db3e271cdd08f075c87f43553ffcdde4e634a717", size = 819285, upload-time = "2026-10-25T12:31:41.55Z" },
 ]
 
 [[package]]

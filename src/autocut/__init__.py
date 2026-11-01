@@ -129,7 +129,7 @@ def _stat_key(paths: list[Path]) -> list:
 
 
 def run(args: argparse.Namespace) -> Path:
-    """Sync (+ derush when a script is given); returns the output folder."""
+    """Sync (+ derush when a script is given); returns the .autocut.xml written."""
     script, xml, media, title = classify(args.inputs)
     ensure_ffmpeg()
     sync_lines: list[str] = []
@@ -169,7 +169,7 @@ def run(args: argparse.Namespace) -> Path:
         seq.export(xml_out, title, [(names["sync"], None)])
         report_out.write_text("\n".join(sync_lines) + "\n", encoding="utf-8-sig")
         print(f"\n{xml_out}   1 sequence: {names['sync']}  (no script given: sync only)")
-        return out
+        return xml_out
 
     audio = None
 
@@ -212,4 +212,4 @@ def run(args: argparse.Namespace) -> Path:
     print(f"  {names['derush']:<32} {len(derush)} clips: good takes only, silences removed")
     print(f"{report_out}   per-sentence report")
     print("\n" + "\n".join(report_out.read_text(encoding="utf-8-sig").splitlines()[len(sync_lines):][:2]))
-    return out
+    return xml_out

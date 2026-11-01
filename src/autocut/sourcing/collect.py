@@ -5,8 +5,8 @@ Each collector harvests one URL once and returns candidates (asset, text describ
 
 from __future__ import annotations
 
+import html
 import io
-import json
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -56,7 +56,7 @@ class Cand:
 
 
 def _strip_html(s: str) -> str:
-    return " ".join(re.sub(r"<[^>]+>", " ", s or "").split())
+    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", s or "")).split())
 
 
 def thumb(ctx: Ctx, src: Path, width: int = 480) -> str:
@@ -472,6 +472,3 @@ def rank_for(ctx: Ctx, s: ScriptSentence, link: Link, cands: list[Cand]) -> list
             break
     return out
 
-
-def json_dump(path: Path, data) -> None:
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")

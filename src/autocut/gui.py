@@ -1,19 +1,22 @@
-"""Small Tk window around the derush: pick the script and the source, press Lancer."""
+"""One window for the whole pipeline, one tab per step; each step also works on its own.
+
+1. Synchro & derush: rushes (or a Premiere sequence) + optional script -> .autocut.xml
+2. Illustrations: script links -> contact sheet -> files + credits + B-roll placed on the derush or the edit
+"""
 
 from __future__ import annotations
 
 import json
 import os
-import queue
 import sys
-import threading
-import traceback
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import ttk
 import tkinter as tk
 
-from . import build_parser, run
+from . import MEDIA_EXT, SCRIPT_EXT, build_parser, run
+from .premiere_xml import AUDIO_EXT
+from .ui import PAD, DropZone, Fold, JobTab, make_root
 
 SETTINGS = Path(os.environ.get("APPDATA", Path.home())) / "autocut" / "gui.json"
 MODELS = {"Précis (large-v3)": "large-v3", "Rapide (large-v3-turbo)": "large-v3-turbo"}
@@ -38,162 +41,138 @@ def _save_settings(data: dict) -> None:
 class _QueueWriter:
     """stdout replacement that forwards text to the Tk thread."""
 
-    def __init__(self, q: queue.Queue):
-        self.q = q
+    def __init__(self, tab: JobTab):
+        self.tab = tab
 
     def write(self, text: str) -> None:
-        self.q.put(("text", text))
+        self.tab.write(text)
 
     def flush(self) -> None:
         pass
 
 
-class App(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title("Autocut - derush automatique")
-        self.minsize(720, 520)
+def _kind(p: Path) -> str:
+    if p.is_dir():
+        return "Dossier"
+    ext = p.suffix.lower()
+    return "Séquence" if ext == ".xml" else "Son" if ext in AUDIO_EXT else "Vidéo"
+
+
+class DerushTab(JobTab):
+    def __init__(self, master, on_done=None, show_next=None):
+        super().__init__(master)
+        self.next_cb, self.show_next = on_done, show_next   # .autocut.xml + script -> illustrations tab
         self.settings = _load_settings()
-        self.q: queue.Queue = queue.Queue()
-        self.out_dir: Path | None = None
-        self.running = False
-
-        pad = {"padx": 8, "pady": 4}
-        files = ttk.LabelFrame(self, text="Fichiers")
-        files.pack(fill="x", **pad)
-        files.columnconfigure(1, weight=1)
-
-        self.script = tk.StringVar(value=self.settings.get("script", ""))
+        self.out_xml: Path | None = None
+        script = self.settings.get("script", "")
+        self.script: str = script if script and Path(script).is_file() else ""
         self.sources: list[str] = [s for s in self.settings.get("sources", []) if Path(s).exists()]
+
+        self.zone = DropZone(
+            self, "Déposez les rushs (vidéos + .wav, ou leur dossier) et le script",
+            self.add, self.rows, folder=True,
+            dialog_types=[("Rushs, séquence ou script",
+                           " ".join(f"*{e}" for e in sorted(MEDIA_EXT | SCRIPT_EXT | {".xml"}))),
+                          ("Tous", "*.*")])
+        self.zone.pack(fill="x", **PAD)
+
+        self.seq_row = ttk.Frame(self)
+        ttk.Label(self.seq_row, text="Séquence à derusher").pack(side="left")
         self.sequence = tk.StringVar(value=AUTO_SEQUENCE)
+        self.seq_box = ttk.Combobox(self.seq_row, textvariable=self.sequence, state="readonly", width=40)
+        self.seq_box.pack(side="left", padx=8)
 
-        ttk.Label(files, text="Script (.md, .txt, .docx)\nfacultatif : sans script,\nsynchro seule").grid(
-            row=0, column=0, sticky="w", **pad)
-        ttk.Entry(files, textvariable=self.script).grid(row=0, column=1, sticky="ew", **pad)
-        sbtn = ttk.Frame(files)
-        sbtn.grid(row=0, column=2, sticky="w", **pad)
-        ttk.Button(sbtn, text="Choisir…", command=self.pick_script).pack(side="left")
-        ttk.Button(sbtn, text="Aucun", command=lambda: self.script.set("")).pack(side="left", padx=4)
-
-        ttk.Label(files, text="Rushs (vidéos + .wav,\nou un dossier)\nou séquence Premiere (.xml)").grid(
-            row=1, column=0, sticky="nw", **pad)
-        self.src_list = tk.Listbox(files, height=5, selectmode="extended")
-        self.src_list.grid(row=1, column=1, sticky="ew", **pad)
-        btns = ttk.Frame(files)
-        btns.grid(row=1, column=2, sticky="nw", **pad)
-        ttk.Button(btns, text="Fichiers…", command=self.pick_files).pack(fill="x")
-        ttk.Button(btns, text="Dossier…", command=self.pick_folder).pack(fill="x", pady=2)
-        ttk.Button(btns, text="Retirer", command=self.remove_sources).pack(fill="x")
-        self._refresh_sources()
-
-        ttk.Label(files, text="Séquence (XML)").grid(row=2, column=0, sticky="w", **pad)
-        self.seq_box = ttk.Combobox(files, textvariable=self.sequence, state="readonly", values=[AUTO_SEQUENCE])
-        self.seq_box.grid(row=2, column=1, sticky="w", **pad)
-
-        opts = ttk.LabelFrame(self, text="Réglages")
-        opts.pack(fill="x", **pad)
+        opts = Fold(self, "Réglages")
+        opts.pack(fill="x", **PAD)
         self.model = tk.StringVar(value=self.settings.get("model", next(iter(MODELS))))
         self.max_pause = tk.DoubleVar(value=self.settings.get("max_pause", 0.6))
         self.pad_in = tk.DoubleVar(value=self.settings.get("pad_in", 0.12))
         self.pad_out = tk.DoubleVar(value=self.settings.get("pad_out", 0.25))
-        ttk.Label(opts, text="Transcription").grid(row=0, column=0, sticky="w", **pad)
-        ttk.Combobox(opts, textvariable=self.model, values=list(MODELS), state="readonly", width=24) \
-            .grid(row=0, column=1, sticky="w", **pad)
+        ttk.Label(opts.inner, text="Transcription").grid(row=0, column=0, sticky="w", **PAD)
+        ttk.Combobox(opts.inner, textvariable=self.model, values=list(MODELS), state="readonly", width=24) \
+            .grid(row=0, column=1, columnspan=3, sticky="w", **PAD)
         for col, (label, var) in enumerate([("Pause max. (s)", self.max_pause), ("Marge début (s)", self.pad_in),
                                             ("Marge fin (s)", self.pad_out)]):
-            ttk.Label(opts, text=label).grid(row=1, column=col * 2, sticky="w", **pad)
-            ttk.Spinbox(opts, textvariable=var, from_=0.0, to=3.0, increment=0.05, width=6) \
-                .grid(row=1, column=col * 2 + 1, sticky="w", **pad)
+            ttk.Label(opts.inner, text=label).grid(row=1, column=col * 2, sticky="w", **PAD)
+            ttk.Spinbox(opts.inner, textvariable=var, from_=0.0, to=3.0, increment=0.05, width=6) \
+                .grid(row=1, column=col * 2 + 1, sticky="w", **PAD)
 
         bar = ttk.Frame(self)
-        bar.pack(fill="x", **pad)
-        self.go = ttk.Button(bar, text="Lancer", command=self.start)
+        bar.pack(fill="x", **PAD)
+        self.go = ttk.Button(bar, text="Lancer", style="Accent.TButton", width=16, command=self.start)
         self.go.pack(side="left")
-        self.open_btn = ttk.Button(bar, text="Ouvrir le dossier", command=self.open_folder, state="disabled")
-        self.open_btn.pack(side="left", padx=8)
-        self.progress = ttk.Progressbar(bar, mode="indeterminate", length=200)
-        self.progress.pack(side="right")
-
-        self.log = scrolledtext.ScrolledText(self, height=16, font=("Consolas", 9), state="disabled")
-        self.log.pack(fill="both", expand=True, **pad)
-        self._write("Ajoutez les rushs (vidéos de la caméra + .wav de l'enregistreur, ou leur dossier) :\n"
-                    "ils sont synchronisés par le son. Ou bien une séquence déjà synchronisée, exportée\n"
-                    "depuis Premiere (Fichier > Exporter > Final Cut Pro XML). Puis le script, et lancez.\n\n"
-                    "Résultat : un seul .autocut.xml à importer dans Premiere, avec 3 séquences :\n"
-                    "  1 sync    les rushs synchronisés\n"
-                    "  2 triage  tout est gardé, découpé et coloré par prise\n"
-                    "            (ratées en Rose, bavardages en Marron, silences en Bleu)\n"
-                    "  3 derush  seulement les bonnes prises, silences supprimés\n"
-                    "et .autocut.txt, le rapport phrase par phrase. Sans script : seulement 1 sync.\n\n"
-                    "La première utilisation télécharge le modèle de transcription (~3 Go).\n")
+        self.open_btn = ttk.Button(bar, text="Ouvrir le dossier", command=self.open_folder)
+        self.next_btn = ttk.Button(bar, text="Illustrations →", command=lambda: self.show_next and self.show_next())
+        self.build_footer()
+        self.idle_status()
         self._list_sequences()
-        self.after(100, self._poll)
 
-    # --- file pickers -----------------------------------------------------------------
-    def _initial_dir(self, var: tk.StringVar) -> str:
-        p = Path(var.get()) if var.get() else None
-        return str(p.parent) if p and p.parent.exists() else str(Path.home() / "Desktop")
-
-    def pick_script(self) -> None:
-        path = filedialog.askopenfilename(title="Script", initialdir=self._initial_dir(self.script),
-                                          filetypes=[("Script", "*.md *.txt *.docx"), ("Tous", "*.*")])
-        if path:
-            self.script.set(path)
-
-    def _refresh_sources(self) -> None:
-        self.src_list.delete(0, "end")
-        for src in self.sources:
-            self.src_list.insert("end", src)
-        if hasattr(self, "seq_box"):
-            self._list_sequences()
-
-    def _add_sources(self, paths) -> None:
+    # --- inputs ---------------------------------------------------------------------------
+    def add(self, paths: list[Path]) -> None:
         for p in paths:
-            if p and p not in self.sources:
-                self.sources.append(p)
-        self._refresh_sources()
+            if p.is_file() and p.suffix.lower() in SCRIPT_EXT:
+                self.script = str(p)
+            elif (p.is_dir() or p.suffix.lower() in MEDIA_EXT | {".xml"}) and str(p) not in self.sources:
+                if p.suffix.lower() == ".xml":      # a Premiere sequence replaces the rushes, and vice versa
+                    self.sources = []
+                elif any(s.lower().endswith(".xml") for s in self.sources):
+                    self.sources = []
+                self.sources.append(str(p))
+        self._list_sequences()
+        self.idle_status()
 
-    def _source_dir(self) -> str:
-        p = Path(self.sources[-1]) if self.sources else None
-        if p and p.is_dir():
-            return str(p)
-        return str(p.parent) if p and p.parent.exists() else str(Path.home() / "Desktop")
+    def rows(self):
+        out = [("Script", self.script, lambda: self._drop_script())]
+        out += [(_kind(Path(s)), s, lambda s=s: self._drop_source(s)) for s in self.sources]
+        if not self.sources:
+            out.append(("Rushs", "", None))
+        return out
 
-    def pick_files(self) -> None:
-        self._add_sources(filedialog.askopenfilenames(
-            title="Rushs ou séquence Premiere", initialdir=self._source_dir(),
-            filetypes=[("Rushs", "*.mp4 *.mov *.mxf *.mkv *.mts *.wav *.bwf *.aif *.aiff *.flac *.mp3 *.m4a"),
-                       ("Séquence Premiere (XML)", "*.xml"), ("Tous", "*.*")]))
+    def _drop_script(self) -> None:
+        self.script = ""
+        self.idle_status()
 
-    def pick_folder(self) -> None:
-        self._add_sources([filedialog.askdirectory(title="Dossier des rushs", initialdir=self._source_dir())])
-
-    def remove_sources(self) -> None:
-        picked = set(self.src_list.curselection())
-        self.sources = [s for k, s in enumerate(self.sources) if k not in picked] if picked else []
-        self._refresh_sources()
+    def _drop_source(self, s: str) -> None:
+        self.sources.remove(s)
+        self._list_sequences()
+        self.idle_status()
 
     def _list_sequences(self) -> None:
-        names = [AUTO_SEQUENCE]
+        names = []
         xmls = [s for s in self.sources if s.lower().endswith(".xml")]
         if xmls:
             try:
                 root = ET.parse(xmls[0]).getroot()
-                names += [s.findtext("name") for s in root.iter("sequence") if s.find("media") is not None]
+                names = [s.findtext("name") for s in root.iter("sequence") if s.find("media") is not None]
             except (OSError, ET.ParseError):
                 pass
         self.seq_box["values"] = names
-        self.seq_box["state"] = "readonly" if xmls else "disabled"
-        self.sequence.set(names[1] if len(names) == 2 else AUTO_SEQUENCE)
+        self.sequence.set(names[0] if names else AUTO_SEQUENCE)
+        if len(names) > 1:
+            self.seq_row.pack(fill="x", after=self.zone, **PAD)
+        else:
+            self.seq_row.pack_forget()
 
-    # --- run ----------------------------------------------------------------------------
-    def start(self) -> None:
-        script = Path(self.script.get()) if self.script.get().strip() else None
-        if script and not script.is_file():
-            messagebox.showerror("Autocut", f"Script introuvable :\n{script}")
+    def idle_status(self) -> None:
+        if not hasattr(self, "status") or self.running:
             return
         if not self.sources:
-            messagebox.showerror("Autocut", "Ajoutez les rushs (ou une séquence Premiere).")
+            msg = "Ou une séquence déjà synchronisée, exportée de Premiere (Fichier > Exporter > Final Cut Pro XML)."
+        elif any(s.lower().endswith(".xml") for s in self.sources):
+            msg = "Derush de la séquence." if self.script else "Ajoutez le script pour le derush."
+        else:
+            msg = ("Synchro + derush : séquences « 1 sync », « 2 triage », « 3 derush »." if self.script
+                   else "Sans script : synchro seule.")
+        self.set_status(msg)
+
+    # --- run ------------------------------------------------------------------------------
+    def start(self) -> None:
+        script = Path(self.script) if self.script else None
+        if script and not script.is_file():
+            self.set_status(f"Script introuvable : {script}", "Err.TLabel")
+            return
+        if not self.sources:
+            self.set_status("Déposez d'abord les rushs (ou une séquence Premiere).", "Err.TLabel")
             return
         argv = [*self.sources, *([str(script)] if script else []), "--model", MODELS[self.model.get()],
                 "--max-pause", str(self.max_pause.get()), "--pad-in", str(self.pad_in.get()),
@@ -204,67 +183,59 @@ class App(tk.Tk):
         _save_settings({"script": str(script or ""), "sources": self.sources, "model": self.model.get(),
                         "max_pause": self.max_pause.get(), "pad_in": self.pad_in.get(),
                         "pad_out": self.pad_out.get()})
+        self.set_status("Démarrage… (la première fois, téléchargement du modèle : ~3 Go)")
+        self.run_job("derush", lambda: self._run(args))
 
-        self.running = True
-        self.go["state"] = "disabled"
-        self.open_btn["state"] = "disabled"
-        self.progress.start(12)
-        self.log.configure(state="normal")
-        self.log.delete("1.0", "end")
-        self.log.configure(state="disabled")
-        threading.Thread(target=self._worker, args=(args,), daemon=True).start()
-
-    def _worker(self, args) -> None:
+    def _run(self, args) -> Path:
         old = sys.stdout
-        sys.stdout = _QueueWriter(self.q)
+        sys.stdout = _QueueWriter(self)
         try:
-            self.q.put(("done", run(args)))
-        except Exception as exc:  # shown to the user, details in the log
-            traceback.print_exc(file=sys.stdout)
-            self.q.put(("error", str(exc)))
+            return run(args)
         finally:
             sys.stdout = old
 
-    def _poll(self) -> None:
-        try:
-            while True:
-                kind, payload = self.q.get_nowait()
-                if kind == "text":
-                    self._write(payload)
-                else:
-                    self._finish(kind, payload)
-        except queue.Empty:
-            pass
-        self.after(100, self._poll)
+    def on_busy(self, busy: bool) -> None:
+        self.go["state"] = "disabled" if busy else "normal"
+        if busy:
+            self.open_btn.pack_forget()
+            self.next_btn.pack_forget()
 
-    def _write(self, text: str) -> None:
-        self.log.configure(state="normal")
-        for i, part in enumerate(text.split("\r")):
-            if i > 0:  # carriage return: overwrite the current line (progress updates)
-                self.log.delete("end-1c linestart", "end-1c")
-            self.log.insert("end", part)
-        self.log.see("end")
-        self.log.configure(state="disabled")
-
-    def _finish(self, kind: str, payload) -> None:
-        self.running = False
-        self.progress.stop()
-        self.go["state"] = "normal"
-        if kind == "done":
-            self.out_dir = payload
-            self.open_btn["state"] = "normal"
-            messagebox.showinfo("Autocut", "Terminé.\nImportez le .autocut.xml dans Premiere "
-                                           "(Fichier > Importer).")
-        else:
-            messagebox.showerror("Autocut", f"Erreur :\n{payload}")
+    def on_done(self, what: str, xml: Path) -> None:
+        self.out_xml = xml
+        self.set_status(f"✓ {xml.name} — à importer dans Premiere (Fichier > Importer)", "Ok.TLabel")
+        self.open_btn.pack(side="left", padx=8)
+        if self.script:
+            self.next_btn.pack(side="left")
+        if self.next_cb:
+            self.next_cb(xml, Path(self.script) if self.script else None)
 
     def open_folder(self) -> None:
-        if self.out_dir:
-            os.startfile(self.out_dir)
+        if self.out_xml:
+            os.startfile(self.out_xml.parent)
 
 
-def main() -> None:
-    App().mainloop()
+class App:
+    def __init__(self, tab: int = 0):
+        from .sourcing.gui import SourcesTab
+        self.root = make_root()
+        self.root.title("Autocut")
+        self.root.geometry("780x520")
+        self.root.minsize(680, 480)
+        book = ttk.Notebook(self.root)
+        book.pack(fill="both", expand=True, padx=6, pady=6)
+        self.sources = SourcesTab(book)
+        self.derush = DerushTab(book, on_done=self.sources.take_derush,
+                                show_next=lambda: book.select(self.sources))
+        book.add(self.derush, text="  1. Synchro & derush  ")
+        book.add(self.sources, text="  2. Illustrations  ")
+        book.select(tab)
+
+    def mainloop(self) -> None:
+        self.root.mainloop()
+
+
+def main(tab: int = 0) -> None:
+    App(tab).mainloop()
 
 
 if __name__ == "__main__":
