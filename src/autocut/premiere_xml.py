@@ -1,11 +1,11 @@
-"""Use an existing Premiere sequence (FCP7 XML export) as the source.
+"""A Premiere sequence (FCP7 XML) as the source of the derush.
 
-The sequence is analysed in *sequence time*: the chosen audio track (by
-default the one holding an external .wav) is rendered as it plays in the
-sequence, so sync and any cuts already made are respected. The derush is
-then written back by cutting every track of the original sequence at the
-same points, deep-copying the original clipitems so file definitions,
-source channels and effects survive untouched.
+The sequence is either exported from Premiere or built by the sync step. It is
+analysed in *sequence time*: the chosen audio track (by default the one holding
+an external .wav) is rendered as it plays in the sequence, so sync and any cuts
+already made are respected. Output sequences cut every track of it at the same
+points, deep-copying the original clipitems so names, master clips, file
+definitions, source channels and effects survive untouched.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import numpy as np
 
 from .media import SAMPLE_RATE
 from .timeline import Clip
-from .xmeml import PPRO_TICKS
+from .xmeml import PPRO_TICKS, add_marker, write_document
 
 AUDIO_EXT = {".wav", ".aif", ".aiff", ".flac", ".mp3", ".m4a", ".bwf"}
 
@@ -68,13 +68,12 @@ def pathurl_to_path(url: str) -> Path:
 
 
 class PremiereSequence:
-    def __init__(self, path: Path, sequence_name: str | None = None, audio_track: int | None = None):
-        self.path = path
-        self.root = ET.parse(path).getroot()
+    def __init__(self, root: ET.Element, sequence_name: str | None = None, audio_track: int | None = None):
+        self.root = root
         sequences = self.root.findall(".//sequence")
         sequences = [s for s in sequences if s.find("media") is not None]
         if not sequences:
-            raise ValueError(f"no sequence in {path}")
+            raise ValueError("no sequence in the XML")
         if sequence_name:
             match = [s for s in sequences if s.findtext("name") == sequence_name]
             if not match:
@@ -83,7 +82,7 @@ class PremiereSequence:
             self.seq = match[0]
         else:
             self.seq = sequences[0]
-        self.name = self.seq.findtext("name", path.stem)
+        self.name = self.seq.findtext("name", "sequence")
         self.fps = _rate(self.seq)
 
         self.files: dict[str, ET.Element] = {}
@@ -109,6 +108,14 @@ class PremiereSequence:
         self.duration = self.duration_frames / float(self.fps)
         self.analysis_track = self._pick_audio(audio_track)
 
+    @classmethod
+    def from_file(cls, path: Path, sequence_name: str | None = None,
+                  audio_track: int | None = None) -> "PremiereSequence":
+        return cls(ET.parse(path).getroot(), sequence_name, audio_track)
+
+    def sources(self) -> list[Path]:
+        return sorted({pathurl_to_path(f.findtext("pathurl")) for f in self.files.values()})
+
     def _items(self, track: ET.Element) -> list[Item]:
         items: list[Item] = []
         for ci in track.findall("clipitem"):
@@ -130,7 +137,7 @@ class PremiereSequence:
     def audio_tracks(self) -> list[Track]:
         return [t for t in self.tracks if t.kind == "audio"]
 
-    def _source(self, item: Item) -> Path:
+    def source(self, item: Item) -> Path:
         return pathurl_to_path(self.files[item.file_id].findtext("pathurl"))
 
     def _pick_audio(self, index: int | None) -> Track:
@@ -140,7 +147,7 @@ class PremiereSequence:
         if index is not None:
             return tracks[index - 1]
         for t in tracks:
-            if any(self._source(i).suffix.lower() in AUDIO_EXT for i in t.items):
+            if any(self.source(i).suffix.lower() in AUDIO_EXT for i in t.items):
                 return t
         return tracks[0]
 
@@ -149,7 +156,7 @@ class PremiereSequence:
         n = {"video": 0, "audio": 0}
         for t in self.tracks:
             n[t.kind] += 1
-            srcs = sorted({self._source(i).name for i in t.items})
+            srcs = sorted({self.source(i).name for i in t.items})
             mark = "  <- transcribed" if t is self.analysis_track else ""
             lines.append(f"  {t.kind[0].upper()}{n[t.kind]}: {len(t.items)} clip(s) {', '.join(srcs)}{mark}")
         for name in sorted(set(self.skipped)):
@@ -167,7 +174,7 @@ class PremiereSequence:
             length = (item.end - item.start) / fps
             pcm = subprocess.run(
                 ["ffmpeg", "-v", "error", "-ss", f"{offset:.6f}", "-t", f"{length:.6f}",
-                 "-i", str(self._source(item)), "-map", "0:a:0", "-ac", "1", "-ar", str(SAMPLE_RATE),
+                 "-i", str(self.source(item)), "-map", "0:a:0", "-ac", "1", "-ar", str(SAMPLE_RATE),
                  "-f", "f32le", "-"], capture_output=True, check=True).stdout
             samples = np.frombuffer(pcm, dtype=np.float32)
             at = int(item.start / fps * SAMPLE_RATE)
@@ -175,13 +182,43 @@ class PremiereSequence:
             out[at:at + n] = samples[:n]
         return out
 
-    def write(self, path: Path, name: str, clips: list[Clip]) -> None:
+    def export(self, path: Path, project: str, sequences: list[tuple[str, list[Clip] | None]]) -> None:
+        """One XML holding several sequences over the same master clips. `None` instead of
+        clips writes this sequence unchanged (the sync)."""
+        written: set[str] = set()
+        out = [self._copy(name, f"sequence-{n}", written) if clips is None
+               else self._cut(name, clips, f"sequence-{n}", written)
+               for n, (name, clips) in enumerate(sequences, 1)]
+        write_document(path, out, project)
+
+    def _fresh(self, uid: str, name: str, keep_markers: bool) -> ET.Element:
         seq = copy.deepcopy(self.seq)
-        seq.set("id", "sequence-1")
+        seq.set("id", uid)
         seq.find("name").text = name
-        for tag in ("uuid", "marker"):
+        for tag in ("uuid",) if keep_markers else ("uuid", "marker"):
             for el in seq.findall(tag):
                 seq.remove(el)
+        return seq
+
+    def _copy(self, name: str, uid: str, written: set[str]) -> ET.Element:
+        seq = self._fresh(uid, name, keep_markers=True)
+        ids: dict[str, str] = {}
+        items = [ci for kind in ("video", "audio") for t in seq.findall(f"media/{kind}/track")
+                 for ci in t.findall("clipitem") + t.findall("transitionitem")]
+        for n, ci in enumerate(items, 1):
+            if ci.get("id"):
+                ids[ci.get("id")] = f"{uid}-item-{n}"
+                ci.set("id", ids[ci.get("id")])
+        for ci in items:
+            for ref in ci.findall("link/linkclipref"):
+                ref.text = ids.get(ref.text, ref.text)
+            f = ci.find("file")
+            if f is not None and f.get("id") in self.files:
+                self._normalize_file(ci, written)
+        return seq
+
+    def _cut(self, name: str, clips: list[Clip], uid: str, written: set[str]) -> ET.Element:
+        seq = self._fresh(uid, name, keep_markers=False)
 
         # Empty every track of the copy, remembering where clips went.
         new_tracks: list[ET.Element] = []
@@ -192,12 +229,15 @@ class PremiereSequence:
                 new_tracks.append(t)
 
         tpf = PPRO_TICKS / float(self.fps)
-        written: set[str] = set()
         clip_count = [0] * len(self.tracks)
         pos = 0
+        prev: tuple[float, int] | None = None   # (src_out, end frame) of the previous clip
         for k, clip in enumerate(clips):
             fa = math.floor(clip.src_in * float(self.fps))
-            fb = math.ceil(clip.src_out * float(self.fps))
+            if prev and abs(prev[0] - clip.src_in) < 1e-9:   # contiguous: no frame shown twice
+                fa = prev[1]
+            fb = max(fa + 1, math.ceil(clip.src_out * float(self.fps)))
+            prev = (clip.src_out, fb)
             group: list[tuple[ET.Element, int, int]] = []   # (clipitem, track index, clip index)
             for ti, (track, dest) in enumerate(zip(self.tracks, new_tracks)):
                 for item in track.items:
@@ -205,7 +245,7 @@ class PremiereSequence:
                     if e <= s:
                         continue
                     ci = copy.deepcopy(item.el)
-                    ci.set("id", f"clipitem-{k + 1}-{ti + 1}-{len(group) + 1}")
+                    ci.set("id", f"{uid}-clipitem-{k + 1}-{ti + 1}-{len(group) + 1}")
                     start = pos + s - fa
                     src_in = item.src_in + s - item.start
                     for tag, value in (("start", start), ("end", start + e - s),
@@ -216,8 +256,6 @@ class PremiereSequence:
                         ci.find("pproTicksIn").text = str(ticks)
                         if ci.find("pproTicksOut") is not None:
                             ci.find("pproTicksOut").text = str(ticks + round((e - s) * tpf))
-                    if ci.find("name") is not None:
-                        ci.find("name").text = clip.name
                     for el in ci.findall("link") + ci.findall("labels"):
                         ci.remove(el)
                     ET.SubElement(ET.SubElement(ci, "labels"), "label2").text = clip.color
@@ -226,17 +264,14 @@ class PremiereSequence:
                     clip_count[ti] += 1
                     group.append((ci, ti, clip_count[ti]))
             self._link(group)
+            if group and clip.label:
+                add_marker(seq, clip.label, pos, pos + fb - fa)
             pos += fb - fa
 
         dur = seq.find("duration")
         if dur is not None:
             dur.text = str(pos)
-        root = ET.Element("xmeml", version=self.root.get("version", "5"))
-        root.append(seq)
-        ET.indent(root)
-        with path.open("wb") as fh:
-            fh.write(b'<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE xmeml>\n')
-            ET.ElementTree(root).write(fh, encoding="utf-8", xml_declaration=False)
+        return seq
 
     def _normalize_file(self, ci: ET.Element, written: set[str]) -> None:
         """Full <file> definition on first use in the output, a bare reference after."""

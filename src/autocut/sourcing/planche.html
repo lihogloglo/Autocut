@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Planche B-roll</title>
+<style>
+:root {
+  --bg: #f4f3f0; --panel: #ffffff; --ink: #1d1c1a; --muted: #6d6a64; --line: #dedbd4;
+  --accent: #2b59c3; --sel: #2b59c3;
+  --libre: #1f8a4c; --citation: #2b6cb0; --verif: #b7791f; --protege: #c53030;
+  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #161615; --panel: #212120; --ink: #ecebe8; --muted: #9b988f; --line: #34332f;
+          --accent: #7aa2ff; --sel: #7aa2ff; --shadow: none; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+header { position: sticky; top: 0; z-index: 10; background: var(--panel); border-bottom: 1px solid var(--line);
+         padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.filters select, .filters input[type=search] { font: inherit; padding: 4px 6px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--bg); color: var(--ink); }
+.count { color: var(--muted); }
+button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--bg);
+         color: var(--ink); padding: 5px 12px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+main { padding: 8px 16px 80px; max-width: 1800px; margin: 0 auto; }
+h2 { font-size: 20px; margin: 28px 0 8px; }
+.par { display: grid; grid-template-columns: minmax(240px, 340px) 1fr; gap: 16px; padding: 14px 0;
+       border-top: 1px solid var(--line); }
+@media (max-width: 800px) { .par { grid-template-columns: 1fr; } }
+.text p { margin: 0 0 6px; }
+.text .idx { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; margin-right: 4px; }
+.text .note { display: inline-block; background: var(--verif); color: #fff; border-radius: 4px; padding: 0 5px;
+              font-size: 11px; margin-left: 4px; }
+.links { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.links a { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 10px;
+           padding: 0 7px; text-decoration: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+           white-space: nowrap; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; align-content: start; }
+.card { background: var(--panel); border: 2px solid transparent; border-radius: 8px; overflow: hidden;
+        box-shadow: var(--shadow); cursor: pointer; position: relative; display: flex; flex-direction: column; }
+.card.on { border-color: var(--sel); }
+.card.on::after { content: "✓"; position: absolute; top: 6px; left: 6px; background: var(--sel); color: #fff;
+                  width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; }
+.thumb { aspect-ratio: 16 / 10; background: var(--line); display: block; width: 100%; object-fit: cover; }
+.thumb.contain { object-fit: contain; }
+.meta { padding: 6px 8px 8px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.title { font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.sub { color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.badges { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.b { font-size: 11px; border-radius: 4px; padding: 0 5px; border: 1px solid var(--line); color: var(--muted); }
+.r { color: #fff; border: none; }
+.r.libre { background: var(--libre); } .r.citation { background: var(--citation); }
+.r.verif { background: var(--verif); } .r.protege { background: var(--protege); }
+.warn { color: var(--verif); font-size: 11px; }
+.actions { display: flex; gap: 8px; font-size: 12px; }
+.actions a { color: var(--accent); text-decoration: none; }
+.seg { display: flex; gap: 4px; align-items: center; font-size: 12px; flex-wrap: wrap; }
+.seg input[type=text] { width: 56px; font: inherit; padding: 1px 4px; border: 1px solid var(--line);
+  border-radius: 4px; background: var(--bg); color: var(--ink); }
+.empty { color: var(--muted); font-style: italic; }
+#panel { position: fixed; right: 16px; bottom: 16px; width: min(560px, calc(100vw - 32px)); background: var(--panel);
+         border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 30px rgba(0,0,0,.25); padding: 12px;
+         display: none; z-index: 20; }
+#panel.open { display: block; }
+#panel label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+#panel input { width: 100%; font: inherit; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px;
+               background: var(--bg); color: var(--ink); }
+#log { max-height: 260px; overflow: auto; font: 12px/1.35 Consolas, monospace; white-space: pre-wrap;
+       background: var(--bg); border-radius: 6px; padding: 6px; margin: 8px 0; }
+.row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+#lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.88); display: none; z-index: 30; cursor: zoom-out; }
+#lightbox.open { display: grid; place-items: center; }
+#lightbox img { max-width: 96vw; max-height: 94vh; }
+details { margin-top: 30px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Planche B-roll</h1>
+  <div class="filters">
+    <select id="f-kind" aria-label="Type">
+      <option value="">Tous les types</option><option value="image">Images</option>
+      <option value="screenshot">Captures d'écran</option><option value="page">Pages PDF</option>
+      <option value="video">Vidéos</option>
+    </select>
+    <select id="f-rights" aria-label="Droits">
+      <option value="">Tous les droits</option><option value="libre">Libres</option>
+      <option value="citation">Citation</option><option value="à vérifier">À vérifier</option>
+      <option value="protégé">Protégés</option>
+    </select>
+    <select id="f-origin" aria-label="Origine">
+      <option value="">Liens + recherche</option><option value="lien">Liens du script</option>
+      <option value="recherche">Recherche</option>
+    </select>
+    <label><input type="checkbox" id="f-sel"> sélection seulement</label>
+    <input type="search" id="f-text" placeholder="Filtrer…">
+  </div>
+  <span class="count" id="count"></span>
+  <button class="primary" id="btn-export">Exporter la sélection</button>
+</header>
+<main id="main"><p class="empty">Chargement…</p></main>
+
+<div id="panel">
+  <label for="derush">Séquence derush (.xml de la partie 1, facultatif : place les images aux bons timecodes)</label>
+  <input id="derush" placeholder="D:\…\projet.autocut.xml">
+  <div id="log"></div>
+  <div class="row">
+    <button id="btn-open" disabled>Ouvrir le dossier</button>
+    <button id="btn-close">Fermer</button>
+    <button class="primary" id="btn-go">Lancer l'export</button>
+  </div>
+</div>
+<div id="lightbox"><img alt=""></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const RCLASS = {"libre": "libre", "citation": "citation", "à vérifier": "verif", "protégé": "protege"};
+const VIA = {wikipedia: "Wikipédia", page: "page", pdf: "PDF", owid: "OWID", archive: "Archive.org", video: "vidéo",
+             capture: "capture", commons: "Commons", europeana: "Europeana", web: "web", youtube: "YouTube"};
+let M, sel = {}, saveTimer;
+
+const fmt = t => { if (t == null || t === "") return ""; t = Math.max(0, Math.round(+t));
+  const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
+  return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(s).padStart(2, "0"); };
+const parseT = v => { if (!v.trim()) return null; const p = v.trim().split(":").map(Number);
+  return p.some(isNaN) ? null : p.reduce((a, x) => a * 60 + x, 0); };
+const src = a => a.file || a.url;
+const thumbOf = a => a.thumb || (a.kind !== "video" ? a.url : "");
+
+async function load() {
+  M = await (await fetch("manifest.json")).json();
+  try { const r = await fetch("selection.json"); if (r.ok) sel = await r.json(); } catch (e) {}
+  const known = new Set(M.assets.map(a => a.id));
+  for (const id of Object.keys(sel)) if (!known.has(id)) delete sel[id];
+  $("#title").textContent = M.title;
+  document.title = "Planche — " + M.title;
+  try { const st = await (await fetch("/api/status")).json(); $("#derush").value = st.derush || ""; } catch (e) {}
+  render();
+}
+
+function visible(a) {
+  const k = $("#f-kind").value, r = $("#f-rights").value, o = $("#f-origin").value, q = $("#f-text").value.toLowerCase();
+  if (k && a.kind !== k) return false;
+  if (r && a.rights !== r) return false;
+  if (o && a.origin !== o) return false;
+  if ($("#f-sel").checked && !sel[a.id]) return false;
+  if (q && !(a.title + " " + a.author + " " + a.via + " " + a.note).toLowerCase().includes(q)) return false;
+  return true;
+}
+
+function card(a) {
+  const on = !!sel[a.id], c = sel[a.id] || {};
+  const dims = a.kind === "video" ? (fmt(a.duration) + (a.height ? " · " + a.height + "p" : ""))
+             : (a.width ? a.width + "×" + a.height : "");
+  const contain = a.kind === "page" || a.kind === "screenshot" ? " contain" : "";
+  let seg = "";
+  if (a.kind === "video") {
+    const st = c.start ?? a.start, en = c.end ?? a.end;
+    seg = `<div class="seg" data-stop>
+      extrait <input type="text" data-k="start" value="${fmt(st)}" placeholder="début"> →
+      <input type="text" data-k="end" value="${fmt(en)}" placeholder="fin">
+      <label><input type="checkbox" data-k="full" ${c.full || a.start == null ? "checked" : ""}> entière</label></div>`;
+  }
+  return `<div class="card${on ? " on" : ""}" data-id="${a.id}">
+    ${thumbOf(a) ? `<img class="thumb${contain}" loading="lazy" src="${esc(thumbOf(a))}" alt="">` : `<div class="thumb"></div>`}
+    <div class="meta">
+      <div class="badges"><span class="b r ${RCLASS[a.rights] || "verif"}">${esc(a.rights)}</span>
+        <span class="b">${esc(VIA[a.via] || a.via)}</span>${dims ? `<span class="b">${dims}</span>` : ""}</div>
+      <div class="title" title="${esc(a.title)}">${esc(a.title || "Sans titre")}</div>
+      <div class="sub" title="${esc(a.author + " " + a.licence)}">${esc([a.author, a.licence].filter(Boolean).join(" · "))}</div>
+      ${a.note ? `<div class="warn">${esc(a.note)}</div>` : ""}
+      ${seg}
+      <div class="actions" data-stop>
+        ${a.kind !== "video" ? `<a href="#" data-zoom="${esc(src(a))}">agrandir</a>` : ""}
+        <a href="${esc(a.source_page || a.url)}" target="_blank" rel="noopener">source ↗</a>
+        ${a.kind === "video" ? `<a href="${esc(a.url)}${a.start != null ? (a.url.includes("?") ? "&" : "?") + "t=" + Math.round(a.start) : ""}" target="_blank" rel="noopener">regarder ↗</a>` : ""}
+      </div>
+    </div></div>`;
+}
+
+function render() {
+  const bySentence = {};
+  for (const s of M.sentences) bySentence[s.idx] = s;
+  const byPar = {};
+  for (const a of M.assets) if (visible(a)) (byPar[a.paragraph] ||= []).push(a);
+  let html = "", shown = 0;
+  for (const sec of M.sections) {
+    if (sec.skip) continue;
+    const sents = M.sentences.filter(s => s.section === sec.idx);
+    if (!sents.length) continue;
+    html += `<h2>${esc(sec.title || "Début")}</h2>`;
+    const pars = [...new Set(sents.map(s => s.paragraph))];
+    for (const p of pars) {
+      const ps = sents.filter(s => s.paragraph === p);
+      const assets = (byPar[p] || []).sort((x, y) => (x.origin === y.origin ? 0 : x.origin === "lien" ? -1 : 1)
+        || x.sentence - y.sentence || y.score - x.score);
+      shown += assets.length;
+      const text = ps.map(s => `<p><span class="idx">S${String(s.idx + 1).padStart(3, "0")}</span>${esc(s.text)}${
+        s.notes.map(n => `<span class="note">${esc(n)}</span>`).join("")}</p>${s.links.length ? `<div class="links">${
+        s.links.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener" title="${esc(l.url)}">${esc(l.anchor)} · ${
+        esc(new URL(l.url).hostname.replace(/^www\./, ""))}</a>`).join("")}</div>` : ""}`).join("");
+      html += `<section class="par"><div class="text">${text}</div><div class="grid">${
+        assets.length ? assets.map(card).join("") : `<p class="empty">aucun candidat</p>`}</div></section>`;
+    }
+  }
+  if (M.errors.length) {
+    html += `<details><summary>${M.errors.length} problème(s) pendant la collecte</summary><ul>${
+      M.errors.map(e => `<li>${esc(e.url)} — ${esc(e.error)}</li>`).join("")}</ul></details>`;
+  }
+  $("#main").innerHTML = html;
+  updateCount(shown);
+}
+
+function updateCount(shown) {
+  const n = Object.keys(sel).length;
+  if (shown != null) $("#count").dataset.shown = shown;
+  $("#count").textContent = `${$("#count").dataset.shown} candidats affichés · ${n} sélectionné(s)`;
+  $("#btn-export").textContent = `Exporter la sélection (${n})`;
+}
+
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => fetch("/api/selection", {method: "POST", body: JSON.stringify(sel)}), 300);
+  updateCount();
+}
+
+document.addEventListener("click", e => {
+  const zoom = e.target.closest("[data-zoom]");
+  if (zoom) { e.preventDefault(); $("#lightbox img").src = zoom.dataset.zoom; $("#lightbox").classList.add("open"); return; }
+  if (e.target.closest("[data-stop]")) return;
+  const c = e.target.closest(".card");
+  if (!c) return;
+  const id = c.dataset.id;
+  if (sel[id]) delete sel[id]; else sel[id] = {};
+  c.classList.toggle("on", !!sel[id]);
+  save();
+});
+document.addEventListener("change", e => {
+  const inp = e.target.closest(".seg input");
+  if (!inp) return;
+  const c = e.target.closest(".card"), id = c.dataset.id;
+  sel[id] ||= {};
+  c.classList.add("on");
+  if (inp.dataset.k === "full") sel[id].full = inp.checked;
+  else { const t = parseT(inp.value); if (t != null) { sel[id][inp.dataset.k] = t; sel[id].full = false;
+    c.querySelector('[data-k="full"]').checked = false; } }
+  save();
+});
+$("#lightbox").addEventListener("click", () => $("#lightbox").classList.remove("open"));
+for (const id of ["f-kind", "f-rights", "f-origin", "f-sel"]) $("#" + id).addEventListener("change", render);
+let ft; $("#f-text").addEventListener("input", () => { clearTimeout(ft); ft = setTimeout(render, 250); });
+
+$("#btn-export").addEventListener("click", () => $("#panel").classList.add("open"));
+$("#btn-close").addEventListener("click", () => $("#panel").classList.remove("open"));
+$("#btn-open").addEventListener("click", () => fetch("/api/open", {method: "POST", body: "{}"}));
+$("#btn-go").addEventListener("click", async () => {
+  await fetch("/api/selection", {method: "POST", body: JSON.stringify(sel)});
+  await fetch("/api/export", {method: "POST", body: JSON.stringify({derush: $("#derush").value.trim().replace(/^"|"$/g, "")})});
+  $("#btn-go").disabled = true;
+  poll();
+});
+async function poll() {
+  const st = await (await fetch("/api/status")).json();
+  const log = $("#log");
+  log.textContent = st.log.join("\n");
+  log.scrollTop = log.scrollHeight;
+  if (st.running) return setTimeout(poll, 1000);
+  $("#btn-go").disabled = false;
+  $("#btn-open").disabled = !st.result;
+}
+load();
+</script>
+</body>
+</html>

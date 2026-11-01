@@ -66,10 +66,9 @@ def transcribe(audio: np.ndarray, *, model_name: str, language: str, device: str
     return [w for w in words if w.text]
 
 
-def load_or_transcribe(cache: Path, media: Path, audio_loader, **kwargs) -> list[Word]:
-    stat = media.stat()
-    key = {"file": str(media), "size": stat.st_size, "mtime": stat.st_mtime,
-           "model": kwargs["model_name"], "language": kwargs["language"]}
+def load_or_transcribe(cache: Path, source_key: dict, audio_loader, **kwargs) -> list[Word]:
+    """`source_key` identifies the audio that gets transcribed; the cache is reused while it matches."""
+    key = {**source_key, "model": kwargs["model_name"], "language": kwargs["language"]}
     if cache.exists():
         data = json.loads(cache.read_text(encoding="utf-8"))
         if data.get("key") == key:

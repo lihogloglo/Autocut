@@ -23,6 +23,7 @@ class MediaInfo:
     height: int
     audio_channels: int
     audio_rate: int
+    has_video: bool = True
 
     @property
     def timebase(self) -> int:
@@ -52,10 +53,9 @@ def probe(path: Path) -> MediaInfo:
         capture_output=True, text=True, check=True,
     ).stdout
     data = json.loads(out)
-    video = next((s for s in data["streams"] if s["codec_type"] == "video"), None)
+    video = next((s for s in data["streams"] if s["codec_type"] == "video"
+                  and not s.get("disposition", {}).get("attached_pic")), None)   # not cover art
     audio = next((s for s in data["streams"] if s["codec_type"] == "audio"), None)
-    if audio is None:
-        raise ValueError(f"{path} has no audio stream")
     fps = Fraction(video["r_frame_rate"]) if video else Fraction(25)
     return MediaInfo(
         path=path.resolve(),
@@ -63,8 +63,9 @@ def probe(path: Path) -> MediaInfo:
         fps=fps,
         width=int(video["width"]) if video else 1920,
         height=int(video["height"]) if video else 1080,
-        audio_channels=int(audio.get("channels", 2)),
-        audio_rate=int(audio.get("sample_rate", 48000)),
+        audio_channels=int(audio.get("channels", 2)) if audio else 0,
+        audio_rate=int(audio.get("sample_rate", 48000)) if audio else 48000,
+        has_video=video is not None,
     )
 
 

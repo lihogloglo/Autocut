@@ -11,12 +11,14 @@ from num2words import num2words
 
 FILLERS = {"euh", "heu", "hum", "hmm", "mmh", "mh", "bah", "ben", "beh", "hein", "uh", "um"}
 
-_MD_LINK = re.compile(r"\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*\)")   # URLs may hold (parens)
+_MD_LINK = re.compile(r"\[([^\]]*)\]\(\s*((?:[^()\s]|\([^()\s]*\))*)\s*\)")   # URLs may hold (parens)
 _WIKI_LINK = re.compile(r"\[\[(?:[^\]|]*\|)?([^\]]*)\]\]")
 _URL = re.compile(r"https?://\S+|www\.\S+")
 _CITATION = re.compile(r"\[\d+(?:[,\-–]\s*\d+)*\]|\[\^?\w+\]")
 _SENTENCE_END = re.compile(r"(?<=[.!?…])[»”\"')\]]*\s+|\n\s*\n|\n(?=\s*[-*#•])")
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
+_FRONT_MATTER = re.compile(r"\A\s*---\n.*?\n---\s*\n", re.S)
+_HEADING = re.compile(r"^\s{0,3}(#+)\s(.*)$", re.M)
 
 
 @dataclass
@@ -31,6 +33,24 @@ class Sentence:
         return self.tok_end - self.tok_start
 
 
+def split_headings(text: str) -> tuple[str, list[tuple[int, int, str]]]:
+    """Remove headings; return the body and (offset in body, level, title) of each heading."""
+    headings: list[tuple[int, int, str]] = []
+    removed = 0
+
+    def drop(m: re.Match) -> str:
+        nonlocal removed
+        headings.append((m.start() - removed, len(m.group(1)), m.group(2).strip()))
+        removed += len(m.group())
+        return ""
+
+    return _HEADING.sub(drop, text), headings
+
+
+def read_markdown(path: Path) -> str:
+    return _FRONT_MATTER.sub("", path.read_text(encoding="utf-8-sig"))
+
+
 def read_script(path: Path) -> str:
     """Script text without headings (they are not spoken)."""
     if path.suffix.lower() == ".docx":
@@ -38,9 +58,7 @@ def read_script(path: Path) -> str:
         paragraphs = docx.Document(str(path)).paragraphs
         return "\n\n".join(p.text for p in paragraphs
                            if not p.style.name.lower().startswith(("heading", "titre", "title")))
-    text = path.read_text(encoding="utf-8-sig")
-    text = re.sub(r"\A\s*---\n.*?\n---\s*\n", "", text, flags=re.S)   # YAML front matter
-    return re.sub(r"^\s{0,3}#+\s.*$", "", text, flags=re.M)
+    return split_headings(read_markdown(path))[0]
 
 
 def strip_markup(text: str) -> str:
@@ -72,15 +90,27 @@ def normalize(text: str) -> list[str]:
     return text.split()
 
 
+def sentence_chunks(text: str):
+    """Yield (start offset, sentence, tokens, paragraph break before) for markup-free text."""
+    pos, gap = 0, ""
+    for m in [*_SENTENCE_END.finditer(text), None]:
+        end = m.start() if m else len(text)
+        chunk = " ".join(text[pos:end].split())
+        toks = [t for t in normalize(chunk) if t not in FILLERS]
+        if toks:
+            yield pos, chunk, toks, gap.count("\n") >= 2
+            gap = ""
+        else:
+            gap += text[pos:end]
+        if m:
+            gap += m.group()
+            pos = m.end()
+
+
 def load_sentences(path: Path) -> tuple[list[Sentence], list[str]]:
-    text = strip_markup(read_script(path))
     sentences: list[Sentence] = []
     tokens: list[str] = []
-    for chunk in _SENTENCE_END.split(text):
-        chunk = " ".join(chunk.split())
-        toks = [t for t in normalize(chunk) if t not in FILLERS]
-        if not toks:
-            continue
+    for _, chunk, toks, _ in sentence_chunks(strip_markup(read_script(path))):
         sentences.append(Sentence(len(sentences), chunk, len(tokens), len(tokens) + len(toks)))
         tokens.extend(toks)
     return sentences, tokens

@@ -75,5 +75,5 @@ def test_pipeline(tmp_path: Path):
     env = np.zeros(10_000)
     clips = build_clips(pieces, {TAKE, ADLIB}, words, sentences, env, 1000.0, Options())
     for c in clips:
-        print(f"{c.src_in:7.2f}-{c.src_out:7.2f} {c.color:8} {c.name}")
-    assert [c.color for c in clips if c.name.startswith("S003")] == ["Iris", "Forest"]
+        print(f"{c.src_in:7.2f}-{c.src_out:7.2f} {c.color:8} {c.label}")
+    assert [c.color for c in clips if c.label.startswith("S003")] == ["Iris", "Forest"]

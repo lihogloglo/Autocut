@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -13,6 +14,8 @@ from .transcribe import Word
 # Premiere label names, one per take number (cycled).
 TAKE_COLORS = ["Iris", "Forest", "Mango", "Lavender", "Caribbean", "Yellow", "Cerulean", "Purple"]
 STATUS_COLORS = {INCOMPLETE: "Magenta", FAILED: "Rose", ADLIB: "Tan", CHATTER: "Brown"}
+SILENCE_COLOR = "Blue"
+ALL = {TAKE, INCOMPLETE, FAILED, ADLIB, CHATTER}
 
 
 @dataclass
@@ -27,7 +30,7 @@ class Options:
 class Clip:
     src_in: float
     src_out: float
-    name: str
+    label: str   # take info for the sequence marker; clipitems keep their original names
     color: str
     first_word: int
     last_word: int
@@ -103,3 +106,31 @@ def build_clips(pieces: list[Piece], include: set[str], words: list[Word],
             continue
         clips.append(Clip(start, end, _label(p, sentences, words, last_sentence), _color(p), first, last))
     return clips
+
+
+def build_triage(pieces: list[Piece], words: list[Word], sentences: list[Sentence], env: np.ndarray,
+                 duration: float, opt: Options, min_silence: float = 1.0) -> list[Clip]:
+    """The whole recording, nothing removed: one clip per take/attempt/chatter (pauses
+    inside it kept), silences of `min_silence` or more as their own clips, shorter gaps
+    split at their quietest point between the neighbours."""
+    clips = sorted(build_clips(pieces, ALL, words, sentences, env, duration, replace(opt, max_pause=math.inf)),
+                   key=lambda c: c.src_in)
+    out: list[Clip] = []
+    t = 0.0
+    for c in clips:
+        if c.src_in - t >= min_silence:
+            out.append(Clip(t, c.src_in, "", SILENCE_COLOR, -1, -1))
+        elif out:
+            lo, hi = sorted((t, c.src_in))
+            cut = _quietest(env, lo, hi)
+            out[-1].src_out = c.src_in = t = cut
+        else:
+            c.src_in = 0.0
+        if c.src_out > c.src_in:
+            out.append(c)
+            t = c.src_out
+    if duration - t >= min_silence or not out:
+        out.append(Clip(t, duration, "", SILENCE_COLOR, -1, -1))
+    else:
+        out[-1].src_out = duration
+    return out
