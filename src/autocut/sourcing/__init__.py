@@ -146,6 +146,9 @@ def collect(script: Path, out: Path | None = None, *, shots: bool = True, search
         by_kind[a.kind] = by_kind.get(a.kind, 0) + 1
     log(f"\n{len(manifest.assets)} candidats ({', '.join(f'{n} {k}' for k, n in by_kind.items())}), "
         f"{len(ctx.errors)} problèmes, {time.time() - t0:.0f} s")
+    from .llm import usage_summary
+    if usage := usage_summary():
+        log("IA : " + usage.replace("\n", "\n     "))
     log(f"Dossier : {out}")
     return out
 

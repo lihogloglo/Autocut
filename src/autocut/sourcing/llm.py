@@ -20,6 +20,7 @@ import io
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import tempfile
@@ -34,6 +35,12 @@ CLAUDE_MODEL = os.environ.get("AUTOCUT_CLAUDE_MODEL", "claude-opus-5-5")
 CLAUDE_FAST = os.environ.get("AUTOCUT_CLAUDE_FAST_MODEL", "claude-sonnet-5-5")
 GEMINI_MODEL = os.environ.get("AUTOCUT_GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_FAST = os.environ.get("AUTOCUT_GEMINI_FAST_MODEL", "gemini-3.5-flash-lite")
+# Images sent to Gemini: 448 px thumbnails need no more than "medium" (533 tokens each instead of 1081).
+GEMINI_MEDIA = {"low": "MEDIA_RESOLUTION_LOW", "medium": "MEDIA_RESOLUTION_MEDIUM", "high": "MEDIA_RESOLUTION_HIGH"}.get(
+    os.environ.get("AUTOCUT_GEMINI_MEDIA", "medium"), "MEDIA_RESOLUTION_MEDIUM")
+# $ per million tokens (input, output incl. thinking), paid tier: ai.google.dev/gemini-api/docs/pricing
+GEMINI_PRICES = {"gemini-3.8-flash": [("2027-01-01", 1.50, 7.50), ("", 0.75, 3.75)],
+                 "gemini-3.5-flash-lite": [("", 0.30, 2.50)]}
 GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -244,6 +251,46 @@ def jpeg(im, side: int = 512) -> bytes:
 # --- Calls --------------------------------------------------------------------------------------
 # `content` is a list of str and bytes (JPEG images), in order.
 
+# --- Usage: what the calls of this run consumed -----------------------------------------------------
+
+_usage: dict = {}
+_usage_lock = threading.Lock()
+
+
+def _count(engine: str, model: str, tokens_in: int = 0, tokens_out: int = 0) -> None:
+    with _usage_lock:
+        u = _usage.setdefault((engine, model), {"calls": 0, "in": 0, "out": 0})
+        u["calls"] += 1
+        u["in"] += int(tokens_in or 0)
+        u["out"] += int(tokens_out or 0)
+
+
+def _gemini_price(model: str) -> tuple[float, float] | None:
+    today = time.strftime("%Y-%m-%d")
+    for since, p_in, p_out in GEMINI_PRICES.get(model, []):
+        if today >= since:
+            return p_in, p_out
+    return None
+
+
+def usage_summary() -> str:
+    """One line per engine used: calls, tokens and, for the Gemini API, the cost on a paid key."""
+    lines = []
+    with _usage_lock:
+        items = sorted(_usage.items())
+    for (engine, model), u in items:
+        k = lambda n: f"{n / 1e6:.2f} M" if n >= 1e6 else f"{n / 1e3:.0f} k"   # noqa: E731
+        tokens = f"{u['calls']} appels, {k(u['in'])} jetons en entrée, {k(u['out'])} en sortie"
+        if engine == "gemini" and (price := _gemini_price(model)):
+            cost = u["in"] / 1e6 * price[0] + u["out"] / 1e6 * price[1]
+            lines.append(f"{label(engine)} {model} : {tokens} ≈ {cost:.3f} $ (clé payante ; 0 $ en gratuit)")
+        elif "exe" in ENGINES.get(engine, {}):
+            lines.append(f"{label(engine)} : {tokens} (compris dans l'abonnement)")
+        else:
+            lines.append(f"{label(engine)} {model} : {tokens}")
+    return "\n".join(lines)
+
+
 _gates = {"gemini": threading.Semaphore(int(os.environ.get("AUTOCUT_GEMINI_PARALLEL", "4"))),
           "claude": threading.Semaphore(4), "cli": threading.Semaphore(int(os.environ.get("AUTOCUT_CLI_PARALLEL", "2")))}
 
@@ -293,6 +340,9 @@ def gemini_json(system: str, content: list, schema: dict, *, timeout: float = 60
     configs = [{"response_mime_type": "application/json", "response_json_schema": schema},
                {"response_mime_type": "application/json", "response_schema": _strip_schema(schema)},
                {"response_mime_type": "application/json"}]
+    if any(not isinstance(c, str) for c in content):
+        for cfg in configs:
+            cfg["media_resolution"] = GEMINI_MEDIA
     last = ""
     for i, cfg in enumerate(configs):
         sys_text = system if i < 2 else system + "\n\nRéponds en JSON selon ce schéma :\n" + json.dumps(schema)
@@ -311,6 +361,9 @@ def gemini_json(system: str, content: list, schema: dict, *, timeout: float = 60
         if r.status_code != 200:
             raise RuntimeError(f"Gemini {r.status_code} : {_gemini_error(r)}")
         data = r.json()
+        meta = data.get("usageMetadata") or {}
+        _count("gemini", model, meta.get("promptTokenCount"),
+               (meta.get("candidatesTokenCount") or 0) + (meta.get("thoughtsTokenCount") or 0))
         cand = (data.get("candidates") or [{}])[0]
         if cand.get("finishReason") == "MAX_TOKENS":
             raise RuntimeError("réponse tronquée")
@@ -353,6 +406,9 @@ def claude_json(system: str, content: list, schema: dict, *, effort: str = "medi
         messages=[{"role": "user", "content": blocks}],
     ) as stream:
         response = stream.get_final_message()
+    u = response.usage
+    _count("claude", response.model, (u.input_tokens or 0) + (getattr(u, "cache_read_input_tokens", 0) or 0)
+           + (getattr(u, "cache_creation_input_tokens", 0) or 0), u.output_tokens)
     if response.stop_reason == "refusal":
         raise RuntimeError("requête refusée")
     if response.stop_reason == "max_tokens":
@@ -404,6 +460,9 @@ def claude_code_json(system: str, content: list, schema: dict, *, effort: str = 
         data = json.loads(r.stdout)
     except ValueError:
         raise RuntimeError(f"Claude Code : {(r.stderr or r.stdout).strip()[:200]}") from None
+    u = data.get("usage") or {}
+    _count("claude-code", "", (u.get("input_tokens") or 0) + (u.get("cache_read_input_tokens") or 0)
+           + (u.get("cache_creation_input_tokens") or 0), u.get("output_tokens"))
     if data.get("is_error") or "structured_output" not in data:
         raise RuntimeError(f"Claude Code : {str(data.get('result') or data.get('subtype'))[:200]}")
     return data["structured_output"]
@@ -453,6 +512,8 @@ def codex_json(system: str, content: list, schema: dict, *, effort: str = "mediu
         if r.returncode != 0 or not answer.exists():
             err = [ln for ln in (r.stderr + r.stdout).splitlines() if "ERROR" in ln or "error" in ln.lower()]
             raise RuntimeError(f"Codex : {(err[-1] if err else r.stderr.strip()[-200:])[:240]}")
+        used = re.search(r"tokens used\s*\n\s*([\d,  ]+)", r.stderr + r.stdout)
+        _count("codex", models[0] if models else "", int(re.sub(r"\D", "", used.group(1))) if used else 0, 0)
         return _parse_json(answer.read_text(encoding="utf-8"))
 
 
@@ -506,6 +567,8 @@ def antigravity_json(system: str, content: list, schema: dict, *, effort: str = 
         data = json.loads(r.stdout)
     except ValueError:
         raise RuntimeError(f"Antigravity : {(r.stderr or r.stdout).strip()[:240]}") from None
+    u = data.get("usage") or {}
+    _count("antigravity", model, u.get("input_tokens"), (u.get("output_tokens") or 0) + (u.get("thinking_tokens") or 0))
     if isinstance(data.get("structured_output"), dict):
         return data["structured_output"]
     if data.get("status") != "SUCCESS":

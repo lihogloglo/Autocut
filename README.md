@@ -298,7 +298,7 @@ chosen on the **IA** page (*Auto*: the first connected one, in this order):
 
 | Engine | How | Notes |
 |---|---|---|
-| Gemini | API key pasted on the IA page (`%APPDATA%\autocut\keys.json`) | cheap; `AUTOCUT_GEMINI_MODEL` |
+| Gemini | API key pasted on the IA page (`%APPDATA%\autocut\keys.json`) | cheap; `AUTOCUT_GEMINI_MODEL`; pictures sent at medium resolution (`AUTOCUT_GEMINI_MEDIA=low/medium/high`) |
 | Claude | API key (`ANTHROPIC_API_KEY`) | `AUTOCUT_CLAUDE_MODEL` |
 | Claude subscription (Pro/Max) | the official Claude Code CLI, signed in | **Connecter** runs `claude auth login`; opus / sonnet |
 | ChatGPT subscription | the official Codex CLI, signed in with ChatGPT | **Connecter** runs `codex login`; the model is taken from Codex's own list for the account |
@@ -308,7 +308,8 @@ chosen on the **IA** page (*Auto*: the first connected one, in this order):
 Subscriptions are used only by running the unmodified official CLIs with the user's own login,
 on their machine; Autocut never reads their tokens. Missing CLIs install from the page
 (**Installer**). **Tester** sends a tiny request with an image. **Qualité: Rapide** picks the
-cheaper model of each engine. Subscription calls are slower (a few seconds each) and count against
+cheaper model of each engine. At the end of each run the log gives the calls and tokens per
+engine, and the cost for the Gemini API (paid-tier prices). Subscription calls are slower (a few seconds each) and count against
 the plan's usage limits.
 
 ## Tests

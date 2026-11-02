@@ -501,7 +501,9 @@ def make(script: Path, brief: str = "", refs: list[Path] | None = None, pace: fl
         log(f"  Premiere : {xml}")
     except Exception as e:
         log(f"  XML non écrit : {e}")
-    log(f"\n{len(beats)} plans, {time.time() - t0:.0f} s\nDossier : {out}")
+    usage = llm.usage_summary()
+    log(f"\n{len(beats)} plans, {time.time() - t0:.0f} s" + ("\nIA : " + usage.replace("\n", "\n     ") if usage else "")
+        + f"\nDossier : {out}")
     return out
 
 
