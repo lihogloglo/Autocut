@@ -15,9 +15,10 @@ from urllib.parse import parse_qs, unquote, urljoin, urlparse
 from bs4 import BeautifulSoup
 from PIL import Image
 
+from ..i18n import tr
 from . import embed
 from .fetch import Fetcher
-from .model import CHECK, FREE, PROTECTED, QUOTE, Asset, agency, rights_for
+from .model import CHECK, FREE, PROTECTED, QUOTE, Asset, agency, norm_date, rights_for
 from .script import Link, ScriptSentence
 
 VIDEO_HOSTS = re.compile(r"(youtube\.com|youtu\.be|dailymotion\.com|dai\.ly|vimeo\.com|facebook\.com/(watch|.*/videos)|"
@@ -72,20 +73,69 @@ def thumb(ctx: Ctx, src: Path, width: int = 480) -> str:
     return ctx.rel(dst)
 
 
-def image_size(ctx: Ctx, url: str) -> tuple[int, int] | None:
+def _exif_date(im) -> str:
+    """When the photo was taken (EXIF DateTimeOriginal / Digitized; IFD0 DateTime is the last edit)."""
+    try:
+        sub = im.getexif().get_ifd(0x8769)
+        return norm_date(sub.get(36867) or sub.get(36868) or "")
+    except Exception:
+        return ""
+
+
+def image_probe(ctx: Ctx, url: str) -> tuple[int, int, str] | None:
+    """(width, height, EXIF date) from the first bytes of the file (EXIF sits before the pixels)."""
     for limit in (65536, 524288):
         try:
             r = ctx.fetch.get(url, max_bytes=limit, timeout=15)
             if not r.ok or "html" in r.headers.get("content-type", ""):
                 return None
             with Image.open(io.BytesIO(r.content)) as im:
-                return im.size
+                return (*im.size, _exif_date(im))
         except Exception:
             continue
     return None
 
 
+# --- Dates of pages -----------------------------------------------------------------------------
+
+_PAGE_DATE_KEYS = ("article:published_time", "og:article:published_time", "datepublished", "publishdate",
+                   "publish-date", "pubdate", "dc.date.issued", "dcterms.issued", "dc.date", "dcterms.date",
+                   "sailthru.date", "parsely-pub-date", "date")
+_URL_DATE = re.compile(r"/((?:19|20)\d\d)[/-](0[1-9]|1[0-2])(?:[/-](0[1-9]|[12]\d|3[01]))?(?=[/-])")
+
+
+def url_date(url: str) -> str:
+    """Date in a news or WordPress URL: /2019/03/16/…, /2019-03-16-…, /wp-content/uploads/2019/03/."""
+    m = _URL_DATE.search(urlparse(url).path)
+    return norm_date("-".join(g for g in m.groups() if g)) if m else ""
+
+
+def page_date(page) -> str:
+    """Publication date of a web page (BeautifulSoup or HTML): meta tags, JSON-LD, <time> of the article."""
+    soup = BeautifulSoup(page, "lxml") if isinstance(page, str) else page
+    meta = {}
+    for m in soup.find_all("meta"):
+        k = (m.get("property") or m.get("name") or m.get("itemprop") or "").lower()
+        if k and m.get("content"):
+            meta.setdefault(k, m["content"])
+    for k in _PAGE_DATE_KEYS:
+        if d := norm_date(meta.get(k)):
+            return d
+    for s in soup.find_all("script", type="application/ld+json"):
+        m = re.search(r'"datePublished"\s*:\s*"([^"]+)"', s.string or "")
+        if m and (d := norm_date(m.group(1))):
+            return d
+    t = soup.select_one("article time[datetime], time[pubdate], time[itemprop=datePublished]")
+    return norm_date(t.get("datetime") or t.get_text()) if t else ""
+
+
 # --- Wikipedia ----------------------------------------------------------------------------------
+
+def commons_date(ii: dict) -> str:
+    """The "date" of the Commons file page (or EXIF): when it was taken or made. The upload date
+    (extmetadata DateTime) is left out: a 2026 upload of an 1871 photo would be badly misleading."""
+    return norm_date(ii.get("extmetadata", {}).get("DateTimeOriginal", {}).get("value", ""))
+
 
 def wikipedia(ctx: Ctx, url: str) -> list[Cand]:
     p = urlparse(url)
@@ -95,7 +145,7 @@ def wikipedia(ctx: Ctx, url: str) -> list[Cand]:
     base = {"format": "json", "formatversion": 2, "redirects": 1}
     page = ctx.fetch.json(api, {**base, "action": "parse", "page": title, "prop": "images|sections|displaytitle"})
     if "error" in page:
-        raise RuntimeError(page["error"].get("info", "page introuvable"))
+        raise RuntimeError(page["error"].get("info", tr("page introuvable")))
     page = page["parse"]
     order = page["images"]
     in_section: set[str] = set()
@@ -112,7 +162,8 @@ def wikipedia(ctx: Ctx, url: str) -> list[Cand]:
         info = ctx.fetch.json(api, {**base, "action": "query", "titles": "|".join("File:" + n for n in chunk),
                                     "prop": "imageinfo", "iiprop": "url|size|mime|extmetadata",
                                     "iiurlwidth": 480, "iiextmetadatafilter":
-                                    "LicenseShortName|LicenseUrl|Artist|Credit|ImageDescription|ObjectName"})
+                                    "LicenseShortName|LicenseUrl|Artist|Credit|ImageDescription|ObjectName|"
+                                    "DateTimeOriginal"})
         for pg in info.get("query", {}).get("pages", []):
             ii = (pg.get("imageinfo") or [None])[0]
             if not ii:
@@ -131,7 +182,7 @@ def wikipedia(ctx: Ctx, url: str) -> list[Cand]:
                       url=ii["url"], thumb=ii.get("thumburl", ii["url"]), source_page=ii.get("descriptionurl", ""),
                       title=obj[:120], author=md.get("Artist", "")[:120], licence=licence,
                       licence_url=md.get("LicenseUrl", ""), credit=md.get("Credit", "")[:200],
-                      rights=rights_for(licence or None), width=w, height=h,
+                      rights=rights_for(licence or None), width=w, height=h, date=commons_date(ii),
                       note="svg" if mime == "image/svg+xml" else ("tiff" if "tif" in mime else ""))
             prior = 0.15 * (1 - pos / max(len(names), 1)) + (0.35 if name in in_section else 0)
             prior += 0.1 * min(1.0, max(w, h) / 3000)
@@ -196,6 +247,7 @@ def html_page(ctx: Ctx, url: str, resp) -> tuple[list[Cand], list[str]]:
         if k and m.get("content"):
             meta.setdefault(k, m["content"])
     page_title = meta.get("og:title") or (soup.title.string.strip() if soup.title and soup.title.string else "")
+    published = page_date(soup) or url_date(base)
     author = meta.get("author") or meta.get("article:author") or ""
     site = meta.get("og:site_name") or urlparse(base).netloc
     page_licence = ""
@@ -232,11 +284,11 @@ def html_page(ctx: Ctx, url: str, resp) -> tuple[list[Cand], list[str]]:
 
     cands = []
     for src, (caption, credit, prior) in list(found.items())[:20]:
-        size, full = None, src
+        size, full, shot = None, src, ""
         for variant in _bigger(src):
-            got = image_size(ctx, variant)
+            got = image_probe(ctx, variant)
             if got and (not size or got[0] * got[1] > size[0] * size[1]):
-                size, full = got, variant
+                size, full, shot = got[:2], variant, got[2] or shot
             if size and variant != src and max(size) >= 2000:
                 break
         if not size or max(size) < 500 or min(size) < 200:
@@ -244,10 +296,12 @@ def html_page(ctx: Ctx, url: str, resp) -> tuple[list[Cand], list[str]]:
         ag = agency(credit) or agency(caption)
         licence = page_licence if "creativecommons" in page_licence else ""
         rights = PROTECTED if ag else rights_for(licence or None)
-        note = f"agences citées sur la page : {', '.join(page_agencies)}" if not ag and page_agencies else ""
+        note = tr("agences citées sur la page : {agencies}", agencies=", ".join(page_agencies)) \
+            if not ag and page_agencies else ""
         a = Asset(id="", kind="image", via="page", origin="lien", sentence=-1, paragraph=-1, url=full, thumb=src,
                   source_page=url, title=(caption or page_title)[:120], author=ag or author or site,
-                  licence=licence, credit=credit[:200], rights=rights, width=size[0], height=size[1], note=note)
+                  licence=licence, credit=credit[:200], rights=rights, width=size[0], height=size[1], note=note,
+                  date=shot or url_date(full) or url_date(src) or published)
         cands.append(Cand(a, caption or page_title, prior + 0.1 * min(1.0, max(size) / 2500)))
 
     embeds = []
@@ -286,6 +340,7 @@ def pdf(ctx: Ctx, url: str, data: bytes, cites: list[ScriptSentence], hinted: se
     folder.mkdir(parents=True, exist_ok=True)
     meta = doc.metadata or {}
     title = meta.get("title") or Path(urlparse(url).path).name
+    when = norm_date(meta.get("creationDate")) or url_date(url)
     cands = []
     for i, (prior, sidx) in sorted(chosen.items()):
         dst = folder / f"{key}_p{i + 1:03d}.png"
@@ -295,7 +350,8 @@ def pdf(ctx: Ctx, url: str, data: bytes, cites: list[ScriptSentence], hinted: se
             w, h = im.size
         a = Asset(id="", kind="page", via="pdf", origin="lien", sentence=-1, paragraph=-1, url=url,
                   file=ctx.rel(dst), thumb=thumb(ctx, dst), source_page=f"{url}#page={i + 1}",
-                  title=f"{title} — page {i + 1}", author=meta.get("author", ""), rights=QUOTE, width=w, height=h)
+                  title=f"{title} — page {i + 1}", author=meta.get("author", ""), rights=QUOTE, width=w, height=h,
+                  date=when)
         cands.append(Cand(a, pages_text[i][:1000], prior, sidx))
         for j, img in enumerate(doc[i].get_images(full=True)[:6]):
             if min(img[2], img[3]) < 400:
@@ -319,10 +375,15 @@ def owid(ctx: Ctx, url: str) -> list[Cand]:
     slug = p.path.split("/grapher/", 1)[1].strip("/")
     png = f"https://ourworldindata.org/grapher/{slug}.png" + (f"?{p.query}" if p.query else "")
     title = slug.replace("-", " ")
+    try:        # the chart's last data update, in the grapher config embedded in the page
+        m = re.search(r'"lastUpdated"\s*:\s*"([^"]+)"', ctx.fetch.get(f"https://ourworldindata.org/grapher/{slug}").text)
+        when = norm_date(m.group(1)) if m else ""
+    except Exception:
+        when = ""
     a = Asset(id="", kind="image", via="owid", origin="lien", sentence=-1, paragraph=-1, url=png, thumb=png,
               source_page=url, title=title, author="Our World in Data", licence="CC BY 4.0",
               licence_url="https://creativecommons.org/licenses/by/4.0/", rights=FREE, width=3400, height=2400,
-              note="graphique : le .svg est aussi disponible (remplacer .png par .svg)")
+              note=tr("graphique : le .svg est aussi disponible (remplacer .png par .svg)"), date=when)
     return [Cand(a, title, 0.5)]
 
 
@@ -334,8 +395,8 @@ def archive_org(ctx: Ctx, url: str) -> list[Cand]:
     img = f"https://archive.org/services/img/{ident}"
     a = Asset(id="", kind="image", via="archive", origin="lien", sentence=-1, paragraph=-1, url=img, thumb=img,
               source_page=url, title=title[:120], author=first(md.get("creator"))[:120], licence=licence,
-              licence_url=licence, rights=rights_for(licence or None),
-              note="Internet Archive : aucune garantie sur les droits, vérifier")
+              licence_url=licence, rights=rights_for(licence or None), date=norm_date(first(md.get("date")) or first(md.get("year"))),
+              note=tr("Internet Archive : aucune garantie sur les droits, vérifier"))
     return [Cand(a, title, 0.2)]
 
 
@@ -407,7 +468,8 @@ def video(ctx: Ctx, url: str, query: str) -> list[Cand]:
     if start is not None:
         end = start + ctx.seg_len
     elif duration and duration > ctx.full_video_max:
-        window = _caption_window(ctx, info, query)
+        from ..text import detect_language
+        window = _caption_window(ctx, info, query, detect_language(query))
         if window:
             start, end = window
         else:
@@ -421,8 +483,16 @@ def video(ctx: Ctx, url: str, query: str) -> list[Cand]:
               title=(info.get("title") or "")[:120], author=info.get("uploader") or info.get("channel") or "",
               licence=licence, rights=FREE if "creative commons" in licence.lower() else QUOTE,
               width=best.get("width") or info.get("width") or 0, height=best.get("height") or info.get("height") or 0,
-              duration=duration, start=start, end=end)
+              duration=duration, start=start, end=end, date=video_date(info))
     return [Cand(a, a.title, 0.6)]
+
+
+def video_date(info: dict) -> str:
+    """When a video went online (yt-dlp): release (premieres, broadcasts) before upload."""
+    for k in ("release_date", "release_timestamp", "upload_date", "timestamp"):
+        if d := norm_date(info.get(k)):
+            return d
+    return ""
 
 
 def better_uploads(ctx: Ctx, a: Asset, n: int = 6) -> list[Cand]:
@@ -450,8 +520,8 @@ def better_uploads(ctx: Ctx, a: Asset, n: int = 6) -> list[Cand]:
             continue
         b = c.asset
         b.start, b.end = a.start, a.end
-        b.note = (f"autre mise en ligne, {b.height}p au lieu de {a.height}p : vérifier que c'est la même vidéo "
-                  f"et le point de départ")
+        b.note = tr("autre mise en ligne, {height}p au lieu de {was}p : vérifier que c'est la même vidéo "
+                    "et le point de départ", height=b.height, was=a.height)
         out.append(Cand(b, a.title, 0.65))
     return out[:2]
 
@@ -485,7 +555,7 @@ def harvest(ctx: Ctx, url: str, cites: list[ScriptSentence], hinted_pages: set[i
         except Exception as e:
             if "reddit.com" not in host:
                 raise
-            ctx.errors.append({"url": url, "error": f"vidéo inaccessible ({str(e)[:120]}) : capture seulement"})
+            ctx.errors.append({"url": url, "error": tr("vidéo inaccessible ({error}) : capture seulement", error=str(e)[:120])})
             return []
         if re.search(r"youtube\.com|youtu\.be", url) and cands and 0 < cands[0].asset.height < 1080:
             try:
@@ -498,12 +568,14 @@ def harvest(ctx: Ctx, url: str, cites: list[ScriptSentence], hinted_pages: set[i
     if r.ok and ("pdf" in ctype or r.content[:5] == b"%PDF-"):
         return pdf(ctx, url, r.content, cites, hinted_pages)
     if r.ok and ctype.startswith("image/"):
-        size = image_size(ctx, url) or (0, 0)
+        w, h, when = image_probe(ctx, url) or (0, 0, "")
         a = Asset(id="", kind="image", via="page", origin="lien", sentence=-1, paragraph=-1, url=url, thumb=url,
-                  source_page=url, title=Path(urlparse(url).path).name, rights=CHECK, width=size[0], height=size[1])
+                  source_page=url, title=Path(urlparse(url).path).name, rights=CHECK, width=w, height=h,
+                  date=when or url_date(url))
         return [Cand(a, "", 0.5)]
     if not r.ok:
-        raise RuntimeError(f"HTTP {r.status} (page protégée ou introuvable) : capture d'écran seulement")
+        raise RuntimeError(tr("HTTP {status} (page protégée ou introuvable) : capture d'écran seulement",
+                              status=r.status))
     cands, embeds = html_page(ctx, url, r)
     for e in embeds:
         try:

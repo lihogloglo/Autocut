@@ -12,9 +12,10 @@ from dataclasses import asdict
 from pathlib import Path
 from urllib.parse import urlparse
 
+from ..i18n import tr
 from .collect import NO_SCREENSHOT, Ctx, harvest, rank_for
 from .fetch import Fetcher
-from .model import Asset, Manifest
+from .model import Asset, Manifest, add_note, date_note
 from .script import ScriptDoc, parse_script
 
 
@@ -60,7 +61,8 @@ def collect(script: Path, out: Path | None = None, *, shots: bool = True, search
     ctx = Ctx(Fetcher(out / "cache"), out, seg_len, full_video_max)
     cites, hinted = _page_hints(doc)
     steps = 3 + search
-    log(f"[1/{steps}] {doc.title} : {len(doc.sentences)} phrases, {len(cites)} liens cités")
+    log(tr("[1/{steps}] {title} : {n} phrases, {links} liens cités", steps=steps, title=doc.title,
+           n=len(doc.sentences), links=len(cites)))
 
     worker = None
     if shots:
@@ -83,7 +85,8 @@ def collect(script: Path, out: Path | None = None, *, shots: bool = True, search
             worker.jobs.put(Job(url, cites[url]))
         return url, res, err
 
-    log(f"[2/{steps}] collecte des liens" + (" (+ captures d'écran en parallèle)" if shots else ""))
+    log(tr("[2/{steps}] collecte des liens (+ captures d'écran en parallèle)", steps=steps) if shots else
+        tr("[2/{steps}] collecte des liens", steps=steps))
     with ThreadPoolExecutor(6) as ex:
         futures = [ex.submit(one, u) for u in cites]
         for i, f in enumerate(as_completed(futures), 1):
@@ -98,25 +101,26 @@ def collect(script: Path, out: Path | None = None, *, shots: bool = True, search
                 kinds = {}
                 for a in res:
                     kinds[a.kind] = kinds.get(a.kind, 0) + 1
-                desc = ", ".join(f"{n} {k}" for k, n in kinds.items()) or "rien"
+                desc = ", ".join(f"{n} {k}" for k, n in kinds.items()) or tr("rien")
                 log(f"  {i:3}/{len(cites)}  {desc:<22} {short}")
     if worker:
         worker.jobs.put(None)
 
+    from .search import heuristic_queries
+    queries = heuristic_queries(doc)
     if search:
-        from .search import heuristic_queries, llm_queries, search_paragraph
-        queries = heuristic_queries(doc)
-        log(f"[3/{steps}] recherche pour {len(queries)} paragraphes")
+        from .search import llm_queries, search_paragraph
+        log(tr("[3/{steps}] recherche pour {n} paragraphes", steps=steps, n=len(queries)))
         if brief.strip():
-            log(f"  consignes : {brief.strip()[:200]}")
+            log(tr("  consignes : {brief}", brief=brief.strip()[:200]))
         used, provider = llm_queries(queries, llm, log, doc.title, brief)
         if used == "heuristique":
-            log("  requêtes : heuristiques (noms propres, dates) — pour chercher l'événement plutôt que "
-                "les mots, connectez une IA (page IA de la fenêtre)")
+            log(tr("  requêtes : heuristiques (noms propres, dates) — pour chercher l'événement plutôt que "
+                   "les mots, connectez une IA (page IA de la fenêtre)"))
         judge_with = provider if judge else None
         if judge_with:
             from .llm import label
-            log(f"  tri : {label(judge_with)} regarde les meilleures images de chaque paragraphe")
+            log(tr("  tri : {engine} regarde les meilleures images de chaque paragraphe", engine=label(judge_with)))
         with ThreadPoolExecutor(4) as ex:
             futures = [ex.submit(search_paragraph, ctx, q, 10, videos, web, judge_with=judge_with, title=doc.title,
                                  brief=brief)
@@ -124,19 +128,26 @@ def collect(script: Path, out: Path | None = None, *, shots: bool = True, search
             for i, f in enumerate(as_completed(futures), 1):
                 assets += f.result()
                 if i % 10 == 0 or i == len(queries):
-                    log(f"  {i}/{len(queries)} paragraphes")
+                    log(tr("  {i}/{n} paragraphes", i=i, n=len(queries)))
 
     if worker:
-        log(f"[{steps}/{steps}] captures d'écran : {worker.done} pages faites, attente de la fin…")
+        log(tr("[{steps}/{steps}] captures d'écran : {done} pages faites, attente de la fin…", steps=steps,
+               done=worker.done))
         worker.join()
         assets += worker.assets
-        log(f"  {sum(a.kind == 'screenshot' for a in worker.assets)} captures")
+        log(tr("  {n} captures", n=sum(a.kind == 'screenshot' for a in worker.assets)))
 
     unique = {a.id: a for a in assets}
+    # What time each paragraph is about, and a warning on pictures that can't be from then
+    periods = {q.paragraph: (q.period, q.nature) for q in queries}
+    for a in unique.values():
+        period, nature = periods.get(a.paragraph, ("", ""))
+        add_note(a, date_note(a, period, nature))
     manifest = Manifest(str(script), doc.title,
                         [asdict(s) for s in doc.sections],
                         [{"idx": s.idx, "text": s.text, "section": s.section, "paragraph": s.paragraph,
-                          "links": [asdict(link) for link in s.links], "notes": s.notes} for s in doc.sentences],
+                          "links": [asdict(link) for link in s.links], "notes": s.notes,
+                          "period": periods.get(s.paragraph, ("", ""))[0]} for s in doc.sentences],
                         list(unique.values()), ctx.errors)
     manifest.save(out / "manifest.json")
     from .sheet import write_page
@@ -144,12 +155,13 @@ def collect(script: Path, out: Path | None = None, *, shots: bool = True, search
     by_kind = {}
     for a in manifest.assets:
         by_kind[a.kind] = by_kind.get(a.kind, 0) + 1
-    log(f"\n{len(manifest.assets)} candidats ({', '.join(f'{n} {k}' for k, n in by_kind.items())}), "
-        f"{len(ctx.errors)} problèmes, {time.time() - t0:.0f} s")
+    log("\n" + tr("{n} candidats ({kinds}), {problems} problèmes, {secs} s", n=len(manifest.assets),
+                  kinds=", ".join(f"{n} {k}" for k, n in by_kind.items()), problems=len(ctx.errors),
+                  secs=f"{time.time() - t0:.0f}"))
     from .llm import usage_summary
     if usage := usage_summary():
-        log("IA : " + usage.replace("\n", "\n     "))
-    log(f"Dossier : {out}")
+        log(tr("IA : {usage}", usage=usage.replace("\n", "\n     ")))
+    log(tr("Dossier : {folder}", folder=out))
     return out
 
 
@@ -181,9 +193,8 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--serve", action="store_true", help="open the contact sheet when done")
     s = sub.add_parser("sheet", help="open the contact sheet of an output folder")
     s.add_argument("folder", type=Path)
-    s.add_argument("--derush", type=Path, help="part 1 .autocut.xml, to place the B-roll at the sentence times")
-    s.add_argument("--edit", type=Path, help="current edit exported from Premiere (FCP7 XML): place on it instead")
-    e = sub.add_parser("export", help="export the current selection (again: re-places it, e.g. on a newer edit)")
+    e = sub.add_parser("export", help="Premiere XML of the selection at its sentences (downloads what is "
+                                      "missing; run again on a newer edit)")
     e.add_argument("folder", type=Path)
     e.add_argument("--derush", type=Path, help="part 1 .autocut.xml (its Sxxx markers give the sentence times)")
     e.add_argument("--edit", type=Path, help="current edit exported from Premiere (FCP7 XML): the B-roll follows "
@@ -198,10 +209,10 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
-def _serve_forever(folder: Path, derush: Path | None, edit: Path | None = None) -> None:
+def _serve_forever(folder: Path) -> None:
     from .sheet import serve
-    server, url = serve(folder, derush, edit=edit)
-    print(f"Planche : {url}  (Ctrl+C pour arrêter)")
+    server, url = serve(folder)
+    print(tr("Planche : {url}  (Ctrl+C pour arrêter)", url=url))
     try:
         while True:
             time.sleep(1)
@@ -223,17 +234,17 @@ def main() -> None:
                       full_video_max=args.full_video_max, shot_height=args.shot_height)
         write_result(out)
         if args.serve:
-            _serve_forever(out, None)
+            _serve_forever(out)
     elif args.cmd == "sheet":
-        _serve_forever(args.folder, args.derush, args.edit)
+        _serve_forever(args.folder)
     elif args.cmd == "install-panel":
         from .bridge import install_panel
         install_panel(force=args.force)
     elif args.cmd == "premiere":
         from .bridge import PORT, start
         if not start(lambda: (args.folder, args.derush)):
-            raise SystemExit(f"port {PORT} déjà pris : Autocut est-il déjà ouvert ?")
-        print(f"Panneau Premiere servi sur le port {PORT} (Ctrl+C pour arrêter)")
+            raise SystemExit(tr("port {port} déjà pris : Autocut est-il déjà ouvert ?", port=PORT))
+        print(tr("Panneau Premiere servi sur le port {port} (Ctrl+C pour arrêter)", port=PORT))
         try:
             while True:
                 time.sleep(1)

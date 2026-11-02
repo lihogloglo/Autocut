@@ -28,9 +28,9 @@ function tc(s) {
 }
 function dur(s) {
   s = Math.round(s || 0);
-  if (s < 90) return `${s} s`;
+  if (s < 90) return t("{s} s", { s });
   const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
-  return h ? `${h} h ${String(m).padStart(2, "0")}` : `${m} min`;
+  return h ? t("{h} h {m}", { h, m: String(m).padStart(2, "0") }) : t("{m} min", { m });
 }
 function parseTc(t) {
   const parts = String(t).trim().split(":").map(Number);
@@ -47,6 +47,13 @@ const app = {
 
   async start() {
     this.api = window.pywebview.api;
+    try {
+      const l = await this.api.i18n();
+      I18N.set(l.lang, l.dict);
+      const pick = $("#ui-lang");
+      pick.innerHTML = Object.entries(l.names).map(([k, n]) => `<option value="${k}"${k === l.lang ? " selected" : ""}>${esc(n)}</option>`).join("");
+      pick.addEventListener("change", () => this.api.set_ui_lang(pick.value));
+    } catch (e) { /* stays in French */ }
     this.bind();
     this.render(await this.api.init());
     this.show(this.view.state.step || "sync", false);
@@ -93,23 +100,23 @@ const app = {
     $("#go-sync").addEventListener("click", () => this.run("sync"));
     $("#go-derush").addEventListener("click", () => this.run("derush"));
     $("#stop").addEventListener("click", () => this.api.stop());
-    $("#recheck").addEventListener("click", () => { $("#checks").innerHTML = '<li class="muted">Vérification…</li>'; this.api.check(); });
+    $("#recheck").addEventListener("click", () => { $("#checks").innerHTML = `<li class="muted">${esc(t("Vérification…"))}</li>`; this.api.check(); });
     $("#open-sheet").addEventListener("click", async () => {
       const r = await this.api.open_sheet();
-      this.toast(r.ok ? "Planche ouverte dans le navigateur : cochez, puis « Exporter la sélection »." : r.message);
+      this.toast(r.ok ? t("Planche ouverte : cochez et téléchargez, ou glissez les vignettes dans Premiere.") : r.message);
     });
     $("#chain").addEventListener("change", (e) => this.set("chain", e.target.checked));
     $("#open-sb").addEventListener("click", async () => {
       const r = await this.api.open_storyboard();
-      this.toast(r.ok ? "Storyboard ouvert dans le navigateur." : r.message);
+      this.toast(r.ok ? t("Storyboard ouvert dans le navigateur.") : r.message);
     });
-    $("#ai-recheck").addEventListener("click", () => { $("#ai-list").innerHTML = '<li class="muted">Vérification…</li>'; this.api.ai_check(); });
-    $("#ai-engine").innerHTML = ENGINE_CHOICES.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("");
+    $("#ai-recheck").addEventListener("click", () => { $("#ai-list").innerHTML = `<li class="muted">${esc(t("Vérification…"))}</li>`; this.api.ai_check(); });
+    $("#ai-engine").innerHTML = ENGINE_CHOICES.map(([v, l]) => `<option value="${v}">${esc(t(l))}</option>`).join("");
     const saveKey = async () => {
       const input = $("#gemini-key"), btn = $("#save-gemini");
       btn.disabled = true;
       $("#gemini-status").className = "muted";
-      $("#gemini-status").textContent = input.value.trim() ? "Vérification auprès de Google…" : "";
+      $("#gemini-status").textContent = input.value.trim() ? t("Vérification auprès de Google…") : "";
       const r = await this.api.set_key("gemini", input.value);
       btn.disabled = false;
       if (r.ok) input.value = "";
@@ -122,7 +129,7 @@ const app = {
     $("#copy-log").addEventListener("click", (e) => {
       e.preventDefault();
       navigator.clipboard.writeText($("#log").innerText);
-      this.toast("Journal copié");
+      this.toast(t("Journal copié"));
     });
     $$("[data-opt]").forEach((el) => el.addEventListener("change", () => {
       let v = el.type === "checkbox" ? el.checked : el.value;
@@ -163,7 +170,7 @@ const app = {
     else if (what === "url") this.api.open_url(arg);
     else if (what === "ai-connect" || what === "ai-test") {
       const btn = document.activeElement;
-      if (what === "ai-test" && btn) { btn.disabled = true; btn.textContent = "Test…"; }
+      if (what === "ai-test" && btn) { btn.disabled = true; btn.textContent = t("Test…"); }
       const r = await (what === "ai-connect" ? this.api.ai_connect(arg) : this.api.ai_test(arg));
       this.toast(r.message);
       if (what === "ai-connect") setTimeout(() => this.api.ai_check(), 20000);
@@ -208,26 +215,28 @@ const app = {
     if (!$("#save-gemini").disabled) {
       $("#gemini-status").className = gk ? "ok" : "muted";
       $("#gemini-status").innerHTML = gk
-        ? `Clé enregistrée (${esc(gk)}). Pour la changer, collez-en une autre ; pour l'oublier, enregistrez un champ vide.`
-        : `Gratuite sur <button class="link" data-act="url" data-arg="https://aistudio.google.com/apikey">aistudio.google.com/apikey</button>. Elle reste sur cet ordinateur.`;
+        ? esc(t("Clé enregistrée ({key}). Pour la changer, collez-en une autre ; pour l'oublier, enregistrez un champ vide.", { key: gk }))
+        : t("Gratuite sur {link}. Elle reste sur cet ordinateur.",
+            { link: `<button class="link" data-act="url" data-arg="https://aistudio.google.com/apikey">aistudio.google.com/apikey</button>` });
     }
   },
 
   renderNav() {
     const s = this.view.state, src = this.view.sources || {};
     const info = {
-      sync: s.sync_out ? base(s.sync_out) : s.rushes.length ? `${s.rushes.length} rush(s)` : "rushs → séquence calée",
-      derush: s.derush_out ? base(s.derush_out) : s.xml ? base(s.xml) : "séquence → bonnes prises",
-      sources: src.exported ? `${src.exported} fichiers exportés` : src.chosen ? `${src.chosen} choisis` :
-        src.collected ? `${src.collected} candidats` : "liens du script → images",
+      sync: s.sync_out ? base(s.sync_out) : s.rushes.length ? t("{n} rush(s)", { n: s.rushes.length }) : t("rushs → séquence calée"),
+      derush: s.derush_out ? base(s.derush_out) : s.xml ? base(s.xml) : t("séquence → bonnes prises"),
+      sources: src.exported ? t("{n} fichiers téléchargés", { n: src.exported }) : src.chosen ? t("{n} choisis", { n: src.chosen }) :
+        src.collected ? t("{n} candidats", { n: src.collected }) : t("liens du script → images"),
     };
     const checks = this.view.checks;
     const missing = checks ? checks.filter((c) => c.required && !c.ok).length : 0;
-    info.setup = !checks ? "vérification…" : missing ? `${missing} élément(s) à installer` : "tout est prêt";
+    info.setup = !checks ? t("vérification…") : missing ? t("{n} élément(s) à installer", { n: missing }) : t("tout est prêt");
     const sb = this.view.storyboard || {};
-    info.storyboard = sb.beats ? `${sb.beats} plans` : "un style → les plans à créer";
+    info.storyboard = sb.beats ? t("{n} plans", { n: sb.beats }) : t("un style → les plans à créer");
     const cur = this.currentEngine();
-    info.ai = !this.view.ai ? "vérification…" : cur ? cur.label + (cur.how.includes("abonnement") ? " (abonnement)" : "") : "aucune connectée";
+    // the subscription engines are the ones reached through their app (cli); "how" may be translated
+    info.ai = !this.view.ai ? t("vérification…") : cur ? (cur.cli ? t("{engine} (abonnement)", { engine: cur.label }) : cur.label) : t("aucune connectée");
     const done = { sync: !!s.sync_out, derush: !!s.derush_out, sources: !!src.exported, storyboard: !!sb.beats, ai: !!cur };
     $$(".step").forEach((b) => {
       const k = b.dataset.step;
@@ -246,39 +255,39 @@ const app = {
       el.innerHTML = s.script
         ? `<div class="row"><span class="kind script">Script</span>
              <span class="fname"><b title="${esc(s.script)}">${esc(base(s.script))}</b><small>${esc(dir(s.script))}</small></span>
-             <button class="btn small" data-act="open" data-arg="${esc(s.script)}">Ouvrir</button>
-             <button class="btn small" data-pick="script">Changer…</button>
-             <button class="icon-btn" title="Retirer" data-remove="script">✕</button></div>`
+             <button class="btn small" data-act="open" data-arg="${esc(s.script)}">${t("Ouvrir")}</button>
+             <button class="btn small" data-pick="script">${t("Changer…")}</button>
+             <button class="icon-btn" title="${esc(t("Retirer"))}" data-remove="script">✕</button></div>`
         : `<div class="drop missing ${big ? "" : "compact"}"><div class="drop-icon"><svg viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6"/></svg></div>
-             <div class="drop-text"><b>Glissez le script (.md)</b><span>${hint}</span></div>
-             <div class="drop-btns"><button class="btn" data-pick="script">Choisir…</button></div></div>`;
+             <div class="drop-text"><b>${t("Glissez le script (.md)")}</b><span>${hint}</span></div>
+             <div class="drop-btns"><button class="btn" data-pick="script">${t("Choisir…")}</button></div></div>`;
     };
-    slot("#derush-script", false, "Le derush garde les prises qui correspondent au script.");
-    slot("#src-script", true, "C'est lui qui compte ici : ses liens donnent les images, ses phrases les timecodes.");
-    slot("#sb-script", false, "Le storyboard découpe le script en plans.");
+    slot("#derush-script", false, t("Le derush garde les prises qui correspondent au script."));
+    slot("#src-script", true, t("C'est lui qui compte ici : ses liens donnent les images, ses phrases les timecodes."));
+    slot("#sb-script", false, t("Le storyboard découpe le script en plans."));
   },
 
   renderSync() {
     const s = this.view.state;
-    const kind = (p) => /\.[^\\/]+$/.test(p) ? (AUDIO.test(p) ? ["audio", "Son"] : VIDEO.test(p) ? ["video", "Vidéo"] : ["", "Fichier"]) : ["folder", "Dossier"];
+    const kind = (p) => /\.[^\\/]+$/.test(p) ? (AUDIO.test(p) ? ["audio", t("Son")] : VIDEO.test(p) ? ["video", t("Vidéo")] : ["", t("Fichier")]) : ["folder", t("Dossier")];
     $("#rushes").innerHTML = s.rushes.map((r) => {
       const [k, label] = kind(r);
       return `<li><span class="kind ${k}">${label}</span><span class="fname"><b>${esc(base(r))}</b><small>${esc(dir(r))}</small></span>
-              <button class="icon-btn" title="Retirer" data-remove="rushes" data-value="${esc(r)}">✕</button></li>`;
-    }).join("") + (s.rushes.length > 1 ? `<li class="clear" style="border:0;background:none;padding:0"><button class="link" data-remove="rushes">Tout retirer</button></li>` : "");
+              <button class="icon-btn" title="${esc(t("Retirer"))}" data-remove="rushes" data-value="${esc(r)}">✕</button></li>`;
+    }).join("") + (s.rushes.length > 1 ? `<li class="clear" style="border:0;background:none;padding:0"><button class="link" data-remove="rushes">${t("Tout retirer")}</button></li>` : "");
     $(".drop[data-zone=sync]").classList.toggle("compact", s.rushes.length > 0);
     $("#go-sync").disabled = !s.rushes.length || this.job.running;
-    $("#go-sync").textContent = s.chain && s.script ? "Synchroniser puis derusher" : "Synchroniser";
+    $("#go-sync").textContent = s.chain && s.script ? t("Synchroniser puis derusher") : t("Synchroniser");
     $("#chain").nextElementSibling.textContent = s.script
-      ? `Enchaîner avec le derush (script : ${base(s.script)})`
-      : "Enchaîner avec le derush (il faudra le script, page Derush)";
-    $("#res-sync").innerHTML = s.sync_out ? this.resultCard(s.sync_out, "Fichier › Importer dans Premiere : séquence « 1 sync ».",
-      `<button class="btn primary" data-act="use-sync">Derush avec cette séquence →</button>`) : "";
+      ? t("Enchaîner avec le derush (script : {name})", { name: base(s.script) })
+      : t("Enchaîner avec le derush (il faudra le script, page Derush)");
+    $("#res-sync").innerHTML = s.sync_out ? this.resultCard(s.sync_out, t("Fichier › Importer dans Premiere : séquence « 1 sync »."),
+      `<button class="btn primary" data-act="use-sync">${t("Derush avec cette séquence →")}</button>`) : "";
   },
 
   resultCard(path, sum, extra = "") {
     return `<div class="r-head">✓ <span>${esc(base(path))}</span></div>${sum ? `<p class="r-sum">${esc(sum)}</p>` : ""}
-      <div class="r-btns"><button class="btn" data-act="reveal" data-arg="${esc(path)}">Afficher dans l'explorateur</button>${extra}</div>`;
+      <div class="r-btns"><button class="btn" data-act="reveal" data-arg="${esc(path)}">${t("Afficher dans l'explorateur")}</button>${extra}</div>`;
   },
 
   renderDerush() {
@@ -286,41 +295,41 @@ const app = {
     $("#drop-derush").hidden = !!s.xml;
     $("#xml-card").innerHTML = s.xml ? `<div class="row"><span class="kind video">XML</span>
         <span class="fname"><b>${esc(base(s.xml))}</b><small>${esc(dir(s.xml))}</small></span>
-        ${seqs.length > 1 ? `<select id="seq-pick" title="Séquence à derusher">${seqs.map((n) =>
+        ${seqs.length > 1 ? `<select id="seq-pick" title="${esc(t("Séquence à derusher"))}" data-noi18n>${seqs.map((n) =>
           `<option ${n === (s.sequence || seqs[0]) ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>` : ""}
-        <button class="btn small" data-pick="derush">Changer…</button>
-        <button class="icon-btn" title="Retirer" data-remove="xml">✕</button></div>` : "";
+        <button class="btn small" data-pick="derush">${t("Changer…")}</button>
+        <button class="icon-btn" title="${esc(t("Retirer"))}" data-remove="xml">✕</button></div>` : "";
     const pick = $("#seq-pick");
     if (pick) pick.addEventListener("change", () => this.set("sequence", pick.value));
 
     let html = "";
-    if (s.xml && scan.error) html = `<h3>Lecture impossible</h3><p>${esc(scan.error)}</p>`;
+    if (s.xml && scan.error) html = `<h3>${t("Lecture impossible")}</h3><p>${esc(scan.error)}</p>`;
     else if (s.xml && scan.duration !== undefined) {
       const total = scan.duration || 1;
       if (scan.cutoff > 0) {
         const keep = s.keep ?? scan.cutoff;
-        html = `<h3>On dirait que vous avez déjà derushé le début</h3>
+        html = `<h3>${t("On dirait que vous avez déjà derushé le début")}</h3>
           <div class="timeline"><div class="done" style="width:${(keep / total) * 100}%"></div><div class="raw" style="flex:1"></div></div>
-          <div class="legend"><span><i style="background:var(--ok)"></i>${scan.done_clips} clips coupés, jusqu'à ${tc(scan.cutoff)}</span>
-            <span><i style="background:var(--warn)"></i>${dur(scan.raw)} encore brutes (${esc((scan.raw_names || []).join(", "))})</span></div>
+          <div class="legend"><span><i style="background:var(--ok)"></i>${t("{n} clips coupés, jusqu'à {tc}", { n: scan.done_clips, tc: tc(scan.cutoff) })}</span>
+            <span><i style="background:var(--warn)"></i>${t("{d} encore brutes ({names})", { d: dur(scan.raw), names: esc((scan.raw_names || []).join(", ")) })}</span></div>
           <div class="choices">
             <label class="choice ${s.mode === "continue" ? "on" : ""}"><input type="radio" name="mode" value="continue" ${s.mode === "continue" ? "checked" : ""}>
-              <span class="ct"><b>Continuer là où vous vous êtes arrêté</b>
-              <span>Garder tel quel jusqu'à <input class="tc" id="keep-tc" value="${tc(keep)}" title="Modifiable (h:mm:ss)"> puis derusher la suite.
-              ${s.keep != null && Math.abs(s.keep - scan.cutoff) > 0.5 ? `<button class="link" id="keep-reset">revenir à ${tc(scan.cutoff)}</button>` : ""}</span></span></label>
+              <span class="ct"><b>${t("Continuer là où vous vous êtes arrêté")}</b>
+              <span>${t("Garder tel quel jusqu'à")} <input class="tc" id="keep-tc" value="${tc(keep)}" title="${esc(t("Modifiable (h:mm:ss)"))}"> ${t("puis derusher la suite.")}
+              ${s.keep != null && Math.abs(s.keep - scan.cutoff) > 0.5 ? `<button class="link" id="keep-reset">${t("revenir à {tc}", { tc: tc(scan.cutoff) })}</button>` : ""}</span></span></label>
             <label class="choice ${s.mode === "all" ? "on" : ""}"><input type="radio" name="mode" value="all" ${s.mode === "all" ? "checked" : ""}>
-              <span class="ct"><b>Tout refaire</b><span>Derusher toute la séquence à nouveau (vos coupes ne sont pas gardées).</span></span></label>
+              <span class="ct"><b>${t("Tout refaire")}</b><span>${t("Derusher toute la séquence à nouveau (vos coupes ne sont pas gardées).")}</span></span></label>
           </div>`;
       } else if (scan.cutoff === 0) {
-        html = `<h3>Séquence brute</h3><p>${dur(scan.duration)}, ${scan.clips} clip(s) : tout sera derushé.</p>`;
+        html = `<h3>${t("Séquence brute")}</h3><p>${t("{d}, {n} clip(s) : tout sera derushé.", { d: dur(scan.duration), n: scan.clips })}</p>`;
       } else {
-        html = `<h3>Cette séquence a l'air déjà derushée</h3><p>${scan.clips} clips, aucun long passage brut. Le derush la refera entièrement.</p>`;
+        html = `<h3>${t("Cette séquence a l'air déjà derushée")}</h3><p>${t("{n} clips, aucun long passage brut. Le derush la refera entièrement.", { n: scan.clips })}</p>`;
       }
       const todo = scan.to_transcribe || 0;
       html += todo < 1
-        ? `<div class="pill ok">✓ Transcription déjà faite (en cache) : le derush prend une minute ou deux</div>`
-        : `<div class="pill info">≈ ${dur(todo)} d'audio à transcrire${scan.heard - todo > 60 ? ` · ${dur(scan.heard - todo)} déjà en cache` : ""}</div>`;
-      if ((scan.skipped || []).length) html += `<p style="margin-top:10px">Non copiés (sans fichier média, à réappliquer sur le derush) : ${esc(scan.skipped.join(", "))}</p>`;
+        ? `<div class="pill ok">${t("✓ Transcription déjà faite (en cache) : le derush prend une minute ou deux")}</div>`
+        : `<div class="pill info">${t("≈ {d} d'audio à transcrire", { d: dur(todo) })}${scan.heard - todo > 60 ? ` · ${t("{d} déjà en cache", { d: dur(scan.heard - todo) })}` : ""}</div>`;
+      if ((scan.skipped || []).length) html += `<p style="margin-top:10px">${t("Non copiés (sans fichier média, à réappliquer sur le derush) : {names}", { names: esc(scan.skipped.join(", ")) })}</p>`;
     }
     $("#scan").innerHTML = html;
     $$("input[name=mode]").forEach((r) => r.addEventListener("change", () => this.set("mode", r.value)));
@@ -328,7 +337,7 @@ const app = {
     if (ktc) {
       ktc.addEventListener("change", () => {
         const v = parseTc(ktc.value);
-        if (v == null || v < 0 || v > scan.duration) { this.toast("Timecode invalide (h:mm:ss)"); ktc.value = tc(s.keep ?? scan.cutoff); return; }
+        if (v == null || v < 0 || v > scan.duration) { this.toast(t("Timecode invalide (h:mm:ss)")); ktc.value = tc(s.keep ?? scan.cutoff); return; }
         this.api.set("mode", "continue");
         this.set("keep", v);
       });
@@ -338,34 +347,35 @@ const app = {
 
     const model = (this.view.checks || []).find((c) => c.id === `model:${s.opts.model}`);
     if (s.xml && model && !model.ok && (scan.to_transcribe || 0) >= 1) {
-      $("#scan").insertAdjacentHTML("beforeend", `<p style="margin-top:10px">Le modèle de transcription n'est pas encore là : il sera téléchargé au lancement, ou dès maintenant depuis <button class="link" data-act="go" data-arg="setup">Installation</button>.</p>`);
+      $("#scan").insertAdjacentHTML("beforeend", `<p style="margin-top:10px">${t("Le modèle de transcription n'est pas encore là : il sera téléchargé au lancement, ou dès maintenant depuis {link}.",
+        { link: `<button class="link" data-act="go" data-arg="setup">${t("Installation")}</button>` })}</p>`);
     }
     const cont = scan.cutoff > 0 && s.mode === "continue";
     const go = $("#go-derush");
-    go.textContent = cont ? "Continuer le derush" : "Derusher";
+    go.textContent = cont ? t("Continuer le derush") : t("Derusher");
     go.disabled = !s.xml || !s.script || !!scan.error || this.job.running;
     $("#res-derush").innerHTML = s.derush_out ? this.resultCard(s.derush_out,
-      "Fichier › Importer dans Premiere : séquences « 2 triage » (tout, coloré par prise) et « 3 derush ».",
-      `<button class="btn" data-act="report">Rapport par phrase</button>
-       <button class="btn primary" data-act="go" data-arg="sources">Illustrations →</button>`) : "";
+      t("Fichier › Importer dans Premiere : séquences « 2 triage » (tout, coloré par prise) et « 3 derush »."),
+      `<button class="btn" data-act="report">${t("Rapport par phrase")}</button>
+       <button class="btn primary" data-act="go" data-arg="sources">${t("Illustrations →")}</button>`) : "";
   },
 
   renderSources() {
     const s = this.view.state, src = this.view.sources || {};
-    $("#outdir").innerHTML = src.out ? `Dossier des illustrations <code>${esc(src.out)}</code>
-      ${src.exists ? `<button class="btn small" data-act="open" data-arg="${esc(src.out)}">Ouvrir</button>` : ""}` : "";
+    $("#outdir").innerHTML = src.out ? `${t("Dossier des illustrations")} <code data-noi18n>${esc(src.out)}</code>
+      ${src.exists ? `<button class="btn small" data-act="open" data-arg="${esc(src.out)}">${t("Ouvrir")}</button>` : ""}` : "";
     $("#pipeline").style.opacity = s.script ? "" : ".5";
 
     const fromDerush = s.place_xml && s.place_xml === s.derush_out;
     $("#place-slot").className = `pslot ${s.place_xml ? "set" : ""}`;
     $("#place-slot").innerHTML = s.place_xml
-      ? `<span class="fname"><b title="${esc(s.place_xml)}">${esc(base(s.place_xml))}</b><small>${fromDerush ? "résultat du derush" : "votre séquence"}</small></span>
-         <button class="btn small" data-pick="sources">Changer…</button><button class="icon-btn" title="Retirer" data-remove="place_xml">✕</button>`
-      : `<span class="muted" style="flex:1">Glissez ici la séquence (.xml) : le derush ou votre montage</span>
-         <button class="btn small" data-pick="sources">Choisir…</button>`;
+      ? `<span class="fname"><b title="${esc(s.place_xml)}">${esc(base(s.place_xml))}</b><small>${fromDerush ? t("résultat du derush") : t("votre séquence")}</small></span>
+         <button class="btn small" data-pick="sources">${t("Changer…")}</button><button class="icon-btn" title="${esc(t("Retirer"))}" data-remove="place_xml">✕</button>`
+      : `<span class="muted" style="flex:1">${t("Glissez ici la séquence (.xml) : le derush ou votre montage")}</span>
+         <button class="btn small" data-pick="sources">${t("Choisir…")}</button>`;
 
     const collected = src.collected > 0, chosen = src.chosen > 0, placeable = chosen && !!s.place_xml;
-    const next = !s.script ? null : !collected ? "collect" : !chosen || !src.exported ? "choose" : "place";
+    const next = !s.script ? null : !collected ? "collect" : !chosen ? "choose" : "place";
     const set = (id, text, isDone, enabled) => {
       const el = $(id);
       $("p", el).innerHTML = text;
@@ -373,13 +383,13 @@ const app = {
       el.classList.toggle("next", next === id.slice(3));
       $(":scope > button", el).disabled = !enabled || (this.job.running && id !== "#p-choose");
     };
-    set("#p-collect", collected ? `<span class="stat">${src.collected} candidats</span> — relancer ne retélécharge que le nouveau.` :
-      "Images des liens du script, captures des pages, recherches libres de droits. Quelques minutes.", collected, !!s.script);
-    $("#p-collect > button").textContent = collected ? "Recollecter" : "Collecter";
-    set("#p-choose", chosen ? `<span class="stat">${src.chosen} choisis</span>${src.exported ? "" : " — n'oubliez pas « Exporter la sélection » dans la planche."}` :
-      "Cochez les vignettes à garder dans la planche (navigateur), puis « Exporter la sélection ».", chosen && src.exported > 0, collected);
-    set("#p-place", src.exported ? `<span class="stat">${src.exported} fichiers</span> dans « export ». Après un nouveau montage : exportez-le en XML, déposez-le ici, replacez.` :
-      "Chaque image va au timecode de sa phrase. Les phrases sont retrouvées par les marqueurs du derush, ou à l'écoute.", src.exported > 0, placeable);
+    set("#p-collect", collected ? `<span class="stat">${t("{n} candidats", { n: src.collected })}</span> ${t("— relancer ne retélécharge que le nouveau.")}` :
+      t("Images des liens du script, captures des pages, recherches libres de droits. Quelques minutes."), collected, !!s.script);
+    $("#p-collect > button").textContent = collected ? t("Recollecter") : t("Collecter");
+    set("#p-choose", chosen ? `<span class="stat">${t("{n} choisis", { n: src.chosen })}</span>${src.exported ? " · " + t("{n} téléchargés", { n: src.exported }) : ""}` :
+      t("Cochez les vignettes à garder dans la planche et téléchargez-les — ou glissez-les directement dans Premiere."), chosen, collected);
+    set("#p-place", src.exported ? `<span class="stat">${t("{n} fichiers", { n: src.exported })}</span> ${t("dans « médias ». Placer écrit le .xml des illustrations aux timecodes (ce qui manque est téléchargé). Après un nouveau montage : exportez-le en XML, déposez-le ici, replacez.")}` :
+      t("Chaque image va au timecode de sa phrase. Les phrases sont retrouvées par les marqueurs du derush, ou à l'écoute."), src.exported > 0, placeable);
   },
 
   currentEngine() {
@@ -393,19 +403,19 @@ const app = {
   renderAI() {
     if (!this.view) return;
     const ai = this.view.ai, cur = this.currentEngine();
-    $$(".ai-current").forEach((el) => { el.textContent = cur ? `${cur.label} (${cur.how})` : "aucune connectée"; });
+    $$(".ai-current").forEach((el) => { el.textContent = cur ? `${cur.label} (${cur.how})` : t("aucune connectée"); });
     if (!ai) return;
     const HELP = { codex: "https://developers.openai.com/codex/cli", "claude-code": "https://code.claude.com/docs/en/setup",
                    antigravity: "https://antigravity.google", ollama: "https://ollama.com/download",
                    claude: "https://console.anthropic.com/settings/keys", gemini: "https://aistudio.google.com/apikey" };
     $("#ai-list").innerHTML = ai.map((e) => {
       const btns = [];
-      if (e.cli && !e.installed) btns.push(`<button class="btn" data-act="ai-install" data-arg="${e.id}" ${this.job.running ? "disabled" : ""}>Installer</button>`);
-      if (e.cli && e.installed && !e.connected) btns.push(`<button class="btn primary" data-act="ai-connect" data-arg="${e.id}">Connecter</button>`);
-      if (e.connected) btns.push(`<button class="btn" data-act="ai-test" data-arg="${e.id}">Tester</button>`);
-      if (e.connected && this.view.state.opts.llm !== e.id) btns.push(`<button class="btn" data-act="ai-use" data-arg="${e.id}">Utiliser</button>`);
-      if (!e.cli && !e.connected && e.id !== "gemini") btns.push(`<button class="btn" data-act="url" data-arg="${HELP[e.id]}">Aide…</button>`);
-      const note = e.vision ? "" : " · ne regarde pas les images";
+      if (e.cli && !e.installed) btns.push(`<button class="btn" data-act="ai-install" data-arg="${e.id}" ${this.job.running ? "disabled" : ""}>${t("Installer")}</button>`);
+      if (e.cli && e.installed && !e.connected) btns.push(`<button class="btn primary" data-act="ai-connect" data-arg="${e.id}">${t("Connecter")}</button>`);
+      if (e.connected) btns.push(`<button class="btn" data-act="ai-test" data-arg="${e.id}">${t("Tester")}</button>`);
+      if (e.connected && this.view.state.opts.llm !== e.id) btns.push(`<button class="btn" data-act="ai-use" data-arg="${e.id}">${t("Utiliser")}</button>`);
+      if (!e.cli && !e.connected && e.id !== "gemini") btns.push(`<button class="btn" data-act="url" data-arg="${HELP[e.id]}">${t("Aide…")}</button>`);
+      const note = e.vision ? "" : " · " + t("ne regarde pas les images");
       return `<li class="item ${cur && cur.id === e.id ? "current" : ""}"><span class="dot ${e.connected ? "ok" : "opt"}">${e.connected ? "✓" : "–"}</span>
         <span class="ctext"><b>${esc(e.label)} <span class="muted">— ${esc(e.how)}${note}</span></b><span>${esc(e.detail)}</span></span>
         <span class="cbtns">${btns.join("")}</span></li>`;
@@ -416,17 +426,18 @@ const app = {
     if (!this.view) return;
     const s = this.view.state, sb = this.view.storyboard || {};
     $("#sb-refs").innerHTML = s.sb_refs.map((r) => `<div class="ref" title="${esc(r)}"><img src="file:///${esc(r.replace(/\\/g, "/"))}" alt="">
-        <button class="icon-btn" title="Retirer" data-remove="sb_refs" data-value="${esc(r)}">✕</button></div>`).join("") +
-      `<span class="muted" style="flex:1;min-width:200px">${s.sb_refs.length ? "" : "Images de référence du style (facultatif) : glissez-les ici. "}</span>
-       <button class="btn small" data-pick="storyboard">Ajouter…</button>`;
-    const timing = s.derush_out || s.place_xml ? "durées prises dans le derush / le montage" : "pas de derush : durées estimées d'après le texte";
+        <button class="icon-btn" title="${esc(t("Retirer"))}" data-remove="sb_refs" data-value="${esc(r)}">✕</button></div>`).join("") +
+      `<span class="muted" style="flex:1;min-width:200px">${s.sb_refs.length ? "" : t("Images de référence du style (facultatif) : glissez-les ici.") + " "}</span>
+       <button class="btn small" data-pick="storyboard">${t("Ajouter…")}</button>`;
+    const timing = s.derush_out || s.place_xml ? t("durées prises dans le derush / le montage") : t("pas de derush : durées estimées d'après le texte");
     $("#sb-info").innerHTML = !s.script ? "" : sb.beats
-      ? `<b>${sb.beats} plans</b>, ${sb.cards} cartes · ${esc(sb.created)} · ${esc(sb.engine)} · durées ${sb.timing === "montage" ? "du montage" : "estimées"}
-         ${sb.xml ? `<br>Premiere : panneau Autocut › Storyboard › Placer, ou importez <button class="link" data-act="reveal" data-arg="${esc(sb.xml)}">${esc(base(sb.xml))}</button>.` : ""}
-         ${sb.brief !== (s.opts.sb_style || "").trim() ? "<br>Le style a changé depuis : recréez pour une nouvelle bible de style." : "<br>Recréer garde la bible de style et les plans verrouillés sur la page."}`
-      : timing;
+      ? `<b>${t("{n} plans", { n: sb.beats })}</b>, ${t("{n} cartes", { n: sb.cards })} · ${esc(sb.created)} · ${esc(sb.engine)} · ${sb.timing === "montage" ? t("durées du montage") : t("durées estimées")}
+         ${sb.xml ? "<br>" + t("Premiere : panneau Autocut › Storyboard › Placer, ou importez {file}.",
+           { file: `<button class="link" data-act="reveal" data-arg="${esc(sb.xml)}" data-noi18n>${esc(base(sb.xml))}</button>` }) : ""}
+         ${sb.brief !== (s.opts.sb_style || "").trim() ? "<br>" + t("Le style a changé depuis : recréez pour une nouvelle bible de style.") : "<br>" + t("Recréer garde la bible de style et les plans verrouillés sur la page.")}`
+      : esc(timing);
     $("#go-sb").disabled = !s.script || this.job.running;
-    $("#go-sb").textContent = sb.beats ? "Recréer le storyboard" : "Créer le storyboard";
+    $("#go-sb").textContent = sb.beats ? t("Recréer le storyboard") : t("Créer le storyboard");
     $("#open-sb").disabled = !sb.beats;
   },
 
@@ -436,7 +447,7 @@ const app = {
     $("#checks").innerHTML = checks.map((c) => {
       const cls = c.ok ? "ok" : c.required ? "miss" : "opt";
       const btn = c.action ? `<button class="btn ${c.required ? "primary" : ""}" data-act="install" data-arg="${esc(c.id)}" ${this.job.running ? "disabled" : ""}>${esc(c.action)}</button>`
-        : c.link ? `<button class="btn" data-act="url" data-arg="${esc(c.link)}">Télécharger…</button>` : "";
+        : c.link ? `<button class="btn" data-act="url" data-arg="${esc(c.link)}">${t("Télécharger…")}</button>` : "";
       return `<li class="item"><span class="dot ${cls}">${c.ok ? "✓" : c.required ? "!" : "–"}</span>
         <span class="ctext"><b>${esc(c.name)}</b><span>${esc(c.detail)}</span>${c.note && c.action ? `<em>${esc(c.note)}</em>` : ""}</span>${btn}</li>`;
     }).join("");
@@ -456,8 +467,8 @@ const app = {
       this.logLines = [];
       $("#log").innerHTML = "";
       box.className = "job running";
-      $("#job-title").textContent = JOB_TITLE[ev.step] || ev.step;
-      $("#job-label").textContent = "démarrage…";
+      $("#job-title").textContent = JOB_TITLE[ev.step] ? t(JOB_TITLE[ev.step]) : ev.step;
+      $("#job-label").textContent = t("démarrage…");
       $("#job-msg").textContent = "";
       $("#job-pct").textContent = "";
       $("#job-eta").textContent = "";
@@ -468,9 +479,9 @@ const app = {
       box.className = `job ${ev.ok ? "ok" : "err"}`;
       $(".bar").classList.remove("indeterminate");
       $("#job-msg").textContent = ev.message || "";
-      $("#job-label").textContent = ev.ok ? "terminé" : "";
+      $("#job-label").textContent = ev.ok ? t("terminé") : "";
       $("#job-eta").textContent = "";
-      if (!ev.ok && ev.message !== "Arrêté.") $("#log-wrap").open = true;
+      if (!ev.ok && ev.message !== t("Arrêté.") && ev.message !== "Arrêté.") $("#log-wrap").open = true;
       this.notify(ev);
     }
     this.placeJob();
@@ -486,15 +497,16 @@ const app = {
     log.innerHTML = esc(this.logLines.join("\n")) + (ev.current ? `\n<span class="cur">${esc(ev.current)}</span>` : "");
     if (atBottom) log.scrollTop = log.scrollHeight;
     let label = ev.label || "";
-    for (const [re, fr] of LABELS_FR) if (re.test(label)) { label = fr; break; }
-    if (ev.steps) $("#job-label").textContent = `étape ${ev.stepNo}/${ev.steps} · ${label}`;
+    for (const [re, fr] of LABELS_FR) if (re.test(label)) { label = t(fr); break; }
+    if (ev.steps) $("#job-label").textContent = t("étape {n}/{total} · {label}", { n: ev.stepNo, total: ev.steps, label });
     const bar = $(".bar");
     if (ev.progress != null) {
       bar.classList.remove("indeterminate");
       $("#bar-fill").style.width = `${Math.round(ev.progress * 1000) / 10}%`;
-      $("#job-pct").textContent = `${Math.round(ev.progress * 100)} %`;
+      $("#job-pct").textContent = t("{p} %", { p: Math.round(ev.progress * 100) });
     }
-    $("#job-eta").textContent = (ev.eta ? `≈ ${dur(ev.eta)} restantes pour cette étape · ` : "") + `${dur(ev.elapsed)} écoulées`;
+    $("#job-eta").textContent = [ev.eta ? t("≈ {d} restantes pour cette étape", { d: dur(ev.eta) }) : "",
+                                 t("{d} écoulées", { d: dur(ev.elapsed) })].filter(Boolean).join(" · ");
   },
   notify(ev) {
     if (document.hasFocus()) return;

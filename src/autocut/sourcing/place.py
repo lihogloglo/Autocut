@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
+from ..i18n import tr
 from ..premiere_xml import AUDIO_EXT, _rate, pathurl_to_path
 from ..xmeml import PPRO_TICKS
 
@@ -59,12 +60,12 @@ def read_sequence(path: Path, name: str | None = None, prefer: str = "") -> Seq:
     root = ET.parse(path).getroot()
     seqs = sequences(root)
     if not seqs:
-        raise ValueError(f"aucune séquence dans {path.name}")
+        raise ValueError(tr("aucune séquence dans {file}", file=path.name))
     if name:
         seq = next((s for s in seqs if s.findtext("name") == name), None)
         if seq is None:
-            raise ValueError(f"séquence « {name} » introuvable dans {path.name} : "
-                             + ", ".join(s.findtext("name") or "?" for s in seqs))
+            raise ValueError(tr("séquence « {name} » introuvable dans {file} : {available}", name=name,
+                                file=path.name, available=", ".join(s.findtext("name") or "?" for s in seqs)))
     else:
         seq = next((s for s in reversed(seqs) if (s.findtext("name") or "").lower().endswith(prefer)), seqs[-1]) \
             if prefer else seqs[0]

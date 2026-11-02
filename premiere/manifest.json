@@ -2,7 +2,7 @@
   "manifestVersion": 5,
   "id": "com.lihogloglo.autocut",
   "name": "Autocut",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "main": "index.html",
   "host": {
     "app": "premierepro",

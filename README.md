@@ -3,7 +3,7 @@
 <h1 align="center">Autocut</h1>
 
 <p align="center">From a long talking-head recording and its script to an edit with illustrations, in Premiere Pro.<br>
-Free, open source, runs on your PC. Windows. Interface in French.</p>
+Free, open source, runs on your PC. Windows. Interface in French and English; videos in French or English.</p>
 
 ---
 
@@ -11,7 +11,7 @@ Autocut does the slow parts of a YouTube video essay for you:
 
 1. **Synchro**: lines up the camera files and the external audio by their sound, like PluralEyes.
 2. **Derush**: keeps the best take of every line of your script and removes the silences, false starts and stumbles. You get a Premiere sequence, with every sentence marked.
-3. **Illustrations**: finds pictures and videos for every paragraph — from the links in your script, archives and museums (Wikimedia, Europeana, the Met, David Rumsey maps), the web and YouTube — then an AI looks at them and drops the off-topic ones. You tick what you want on a contact sheet, and the files land in your sequence, on the sentence they illustrate, with the credits written for you.
+3. **Illustrations**: finds pictures and videos for every paragraph — from the links in your script, archives and museums (Wikimedia, Europeana, the Met, David Rumsey maps), the web and YouTube — then an AI looks at them and drops the off-topic ones. You tick what you want on a contact sheet, and the files land in your sequence, on the sentence they illustrate, with the credits written for you — or you drag a thumbnail straight onto the Premiere timeline. Each picture shows its date, and the AI is told which period each paragraph is about, so photos of earlier, similar events get flagged.
 4. **Storyboard**: describe a style (« 3D lowpoly like Fern and Lemmino, plus clean motion design for maps and numbers ») and get a shot-by-shot plan of what to create: what we see, camera moves, image and video prompts, a scene to build in Blender. Each shot appears as a card at its place in your timeline.
 
 Each step also works on its own.
@@ -75,7 +75,7 @@ Everything starts from your **script**: a text or Markdown file, one `##` headin
 
 - **Synchro**: drop the rushes (or their folder), click **Synchroniser**, import the `.sync.xml` in Premiere.
 - **Derush**: drop the sequence (the Synchro result, or any sequence exported from Premiere with *File › Export › Final Cut Pro XML*) and the script, click **Derusher**. It also continues a half-done derush without touching your cuts.
-- **Illustrations**: **Collecter**, tick pictures on the contact sheet that opens in your browser, **Exporter la sélection**, then **Placer** — or, in Premiere, *Window › UXP plugins › Autocut* › **Placer les illustrations**.
+- **Illustrations**: **Collecter**, tick pictures on the contact sheet that opens in its own window (hover a thumbnail to enlarge it, ⬇ to download one, drag it into Premiere to place it by hand), **Télécharger la sélection**, then **Placer** writes the XML with each picture at its sentence — or, in Premiere, *Window › UXP plugins › Autocut* › **Placer les illustrations**.
 - **Storyboard**: write the style, **Créer le storyboard**. Edit or redo any shot on the page that opens; place the cards with the Premiere panel (**Quoi › Storyboard**) or import the `.xml`.
 
 Re-run any step after re-editing: Autocut finds every sentence again wherever it ended up in your edit.

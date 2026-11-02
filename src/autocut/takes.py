@@ -35,7 +35,9 @@ MIN_COVERAGE = 0.6
 GLUE_GAP = 0.5       # seconds; words closer than this are the same breath
 IMPRO_TAIL = 3       # off-script words after the last script match that make an improvised ending
 RESTART_CUES = {"non", "attends", "attend", "pardon", "recommence", "recommencer", "reprends", "reprendre",
-                "merde", "putain", "zut", "mince", "ok", "okay", "coupe", "coupez"}
+                "merde", "putain", "zut", "mince", "ok", "okay", "coupe", "coupez",
+                # English
+                "sorry", "wait", "again", "restart", "redo", "cut", "no", "damn", "shit", "fuck", "oops"}
 
 TAKE, INCOMPLETE, FAILED, ADLIB, CHATTER = "take", "incomplete", "failed", "adlib", "chatter"
 

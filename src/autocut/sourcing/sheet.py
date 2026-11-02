@@ -1,52 +1,23 @@
-"""Contact sheet: a local web page to pick assets, served with a tiny API for the selection and the export."""
+"""Contact sheet: a local web page to pick assets, served with a tiny API for the selection and the
+downloads (médias/, see library.py). Placing them at their sentences is the window's « Placer » step."""
 
 from __future__ import annotations
 
 import json
-import os
+import subprocess
 import threading
-import traceback
 import webbrowser
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .export import export
+from .library import Library, open_folder
 
 PAGE = "planche.html"
 
 
-class _State:
-    def __init__(self, out: Path, derush: Path | None, edit: Path | None = None):
-        self.out, self.derush, self.edit = out, derush, edit
-        self.log: list[str] = []
-        self.running = False
-        self.result = ""
-        self.lock = threading.Lock()
-
-    def start_export(self, derush: str | None, edit: str | None = None) -> bool:
-        with self.lock:
-            if self.running:
-                return False
-            self.running, self.log, self.result = True, [], ""
-        self.derush = Path(derush) if derush else None
-        self.edit = Path(edit) if edit else None
-
-        def work():
-            try:
-                self.result = str(export(self.out, self.derush, self.edit, log=self.log.append))
-            except Exception as e:
-                self.log.append(f"ERREUR : {e}")
-                self.log.append(traceback.format_exc(limit=3))
-            finally:
-                self.running = False
-
-        threading.Thread(target=work, daemon=True).start()
-        return True
-
-
 class _Handler(SimpleHTTPRequestHandler):
-    state: _State
+    out: Path
 
     def log_message(self, *args):
         pass
@@ -64,26 +35,36 @@ class _Handler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_GET(self):
-        if self.path == "/api/status":
-            s = self.state
-            return self._json({"running": s.running, "log": s.log[-400:], "result": s.result,
-                               "derush": str(s.derush or ""), "edit": str(s.edit or "")})
+        if self.path.split("?")[0] == "/i18n.js":
+            from ..i18n import js
+            body = js().encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/javascript; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return self.wfile.write(body)
+        if self.path == "/api/files":
+            return self._json(Library.of(self.out).status())
         return super().do_GET()
 
     def do_POST(self):
         data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0) or b"{}")
-        s = self.state
+        lib = Library.of(self.out)
         if self.path == "/api/selection":
-            tmp = s.out / "selection.tmp"
+            tmp = self.out / "selection.tmp"
             tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-            tmp.replace(s.out / "selection.json")
+            tmp.replace(self.out / "selection.json")
             return self._json({"ok": True})
-        if self.path == "/api/export":
-            return self._json({"ok": s.start_export(data.get("derush") or None, data.get("edit") or None)})
+        if self.path == "/api/download":         # [{id, choice}]: into médias/, in the background
+            return self._json({"ok": True, "jobs": [lib.request(it["id"], it.get("choice") or {}, keep=True)
+                                                    for it in data.get("items", [])]})
+        if self.path == "/api/reveal":           # show one downloaded file in Explorer
+            p = lib.path_of(str(data.get("key", "")))
+            if p:
+                subprocess.Popen(["explorer", "/select,", str(p)])
+            return self._json({"ok": bool(p)})
         if self.path == "/api/open":
-            target = Path(s.result) if s.result else s.out
-            if hasattr(os, "startfile"):
-                os.startfile(target)
+            open_folder(lib.root)
             return self._json({"ok": True})
         self.send_error(404)
 
@@ -94,10 +75,9 @@ def write_page(out: Path) -> Path:
     return path
 
 
-def serve(out: Path, derush: Path | None = None, open_browser: bool = True,
-          edit: Path | None = None) -> tuple[ThreadingHTTPServer, str]:
+def serve(out: Path, open_browser: bool = True) -> tuple[ThreadingHTTPServer, str]:
     write_page(out)
-    handler = type("Handler", (_Handler,), {"state": _State(out, derush, edit)})
+    handler = type("Handler", (_Handler,), {"out": out})
     server = ThreadingHTTPServer(("127.0.0.1", 0), partial(handler, directory=str(out)))
     url = f"http://127.0.0.1:{server.server_address[1]}/{PAGE}"
     threading.Thread(target=server.serve_forever, daemon=True).start()

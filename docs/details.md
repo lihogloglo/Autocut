@@ -158,10 +158,12 @@ Script: `.txt`, `.md` or `.docx`. Headings, links, URLs and `[1]` citations are 
 ## B-roll sourcing (part 2)
 
 On the **Illustrations** page everything starts from the script: set it, press **1. Collecter**,
-then **2. Choisir** (opens the contact sheet), click the thumbnails to keep and
-**Exporter la sélection**. **3. Placer** needs one sequence (.xml): it is the derush result by
-default; drop your current edit instead after re-editing, and the same picks go onto it (nothing
-is downloaded again).
+then **2. Choisir** (opens the contact sheet), click the thumbnails to keep, and download
+them: ⬇ under a card, or **Télécharger la sélection** for all the ticked ones (in the background,
+with progress on each card). Or drag a card straight onto the Premiere timeline. **3. Placer**
+writes the XML with each picture at its sentence; it needs one sequence (.xml): the derush result
+by default; drop your current edit instead after re-editing, and the same picks go onto it.
+Whatever was not downloaded yet is downloaded then; nothing is ever downloaded twice.
 
 For every `[text](url)` in the script:
 
@@ -195,10 +197,14 @@ clients with a Cloudflare challenge, so they are reached through Commons and Eur
 Rights badges: **libre** (public domain / CC, credit needed), **citation** (screenshot
 or excerpt), **à vérifier** (unknown, NC/ND), **protégé** (agency or stock site detected).
 
-Export (`<script> - sources\export`): one folder per `##` section (import the folder in
-Premiere: one bin per section; files are named `S014-01 …` after their sentence),
-`credits.txt` ready for the video description, `credits.csv`, and `<title> B-roll.xml`
-with two sequences:
+Files (`<script> - sources\médias`): one folder per type (`Vidéos`, `Images`,
+`Captures d'écran`, `Pages PDF`), files named after their sentence and ending with the item's id
+(and the excerpt, for a video: `S014 youtube - Titre [3f2a9c1e5b7d 80-110].mp4`). The ⬇ button,
+« Télécharger la sélection », a drag into Premiere and **Placer** all use the same file, so an item
+is downloaded once; a hover only fetches into the cache. Files from older versions (`glissés\`,
+`export\`) are reused where they are. `credits.txt` (ready for the video description) and
+`credits.csv` list everything in the folder and are updated with every download.
+**Placer** writes `<title> B-roll.xml` next to `médias`, with two sequences:
 
 | Sequence | What |
 |---|---|
@@ -211,12 +217,12 @@ File → Export → Final Cut Pro XML) each sentence is found again wherever it 
 reordered, another take kept — by matching the rush time under the derush markers; and when
 there is no derush at all (a sequence cut by hand), by listening to it: the voice is
 transcribed (cached per rush, usually instant) and aligned to the script. Sentences cut out of
-the edit are reported; their files are still exported. Without any XML, the illustrations go
+the edit are reported; their files are still downloaded. Without any XML, the illustrations go
 one after the other.
 
 ```
 uv run autocut-sources collect "episode 12.md" [--no-shots] [--no-search] [--no-web] [--llm auto|gemini|claude-code|codex|antigravity|claude|ollama|off] [--quality best|fast] [--no-judge] [--brief "…"] [--shot-height 4000]
-uv run autocut-sources sheet "episode 12 - sources" [--derush "episode 12.autocut.xml"] [--edit "montage.xml"]
+uv run autocut-sources sheet "episode 12 - sources"
 uv run autocut-sources export "episode 12 - sources" [--derush …] [--edit "montage.xml" [--edit-sequence name]]
 ```
 
@@ -229,7 +235,7 @@ model, default `gemini-3.8-flash`) or `ANTHROPIC_API_KEY` for Claude (`AUTOCUT_C
 (`AUTOCUT_OLLAMA_MODEL` to choose).
 `EUROPEANA_KEY` for your own free Europeana key.
 
-Exports are always the best the source has: original image files (only formats Premiere
+Downloads are always the best the source has: original image files (only formats Premiere
 can't read are converted, losslessly; only images over 16384 px are reduced), videos at
 their highest resolution and frame rate (4K60 included), re-encoded to visually lossless
 H.264 only when needed (VP9/AV1 sources, or an excerpt cut between keyframes).
@@ -239,14 +245,15 @@ H.264 only when needed (VP9/AV1 sources, or an excerpt cut between keyframes).
 Instead of exporting the edit as XML and importing a B-roll XML back, the **Autocut** panel
 works on the sequence open in Premiere (2025 v25.6 or later). **Placer les illustrations**
 (or **Placer le storyboard**, with **Quoi › Storyboard**: the storyboard cards, at their beats)
-reads the sequence, asks the Autocut window where each exported pick goes, imports the files
-(bin `Illustrations - <title>`, one sub-bin per section; files already there are reused) and
+reads the sequence, asks the Autocut window where each downloaded pick goes (picks you already
+dragged in by hand are left out), imports the files (bin `Illustrations - <title>`, one sub-bin
+per type; files already there are reused) and
 puts them on the tracks above the edit, creating tracks when needed. Clicking it again after
-re-editing first removes what it placed before (only files from the `export` folder: your
-edit is never touched). **Retirer** removes them. Undo works, in a few steps.
+re-editing first removes what it placed before (only the files it placed itself: your edit,
+and what you dragged in by hand, are never touched). **Retirer** removes them. Undo works, in a few steps.
 
 The Autocut window must be open (the panel talks to it on `127.0.0.1:47820`), with the script
-on the Illustrations page and the picks exported. Without the window:
+on the Illustrations page and the picks downloaded. Without the window:
 `uv run autocut-sources premiere "episode 12 - sources" [--derush "episode 12.autocut.xml"]`.
 
 Install (once, free):

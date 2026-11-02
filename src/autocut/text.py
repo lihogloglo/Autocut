@@ -1,4 +1,7 @@
-"""Script loading and French text normalization shared by script and transcript."""
+"""Script loading and text normalization shared by script and transcript.
+
+The spoken language (French or English) is the script's: found from its words, or given. It decides
+how numbers are spelled out and which hesitations ("euh", "um") are ignored."""
 
 from __future__ import annotations
 
@@ -9,7 +12,43 @@ from pathlib import Path
 
 from num2words import num2words
 
-FILLERS = {"euh", "heu", "hum", "hmm", "mmh", "mh", "bah", "ben", "beh", "hein", "uh", "um"}
+LANGUAGES = {"fr": "Français", "en": "English"}
+_FILLERS = {"fr": {"euh", "heu", "hum", "hmm", "mmh", "mh", "bah", "ben", "beh", "hein", "uh", "um"},
+            "en": {"uh", "um", "uhm", "umm", "er", "erm", "hmm", "mmh", "mh", "mm", "ah", "eh"}}
+_PERCENT = {"fr": " pour cent ", "en": " percent "}
+FILLERS = set(_FILLERS["fr"])      # mutated in place by set_language (other modules import the set)
+LANG = "fr"
+
+_STOPWORDS = {
+    "fr": set("le la les des un une et est que qui dans pour pas sur au aux du ce cette il elle ils nous vous "
+              "je on mais ou donc avec sont été être fait plus comme tout leur".split()),
+    "en": set("the of and to in is that it for was on are with as this be at by from they we you have not "
+              "but or an which their has were been will would there what".split()),
+}
+
+
+def detect_language(text: str) -> str:
+    """'fr' or 'en', by counting the most common words of each."""
+    words = re.findall(r"[a-zà-ÿ']+", text.lower())[:5000]
+    score = {lang: sum(w in sw for w in words) for lang, sw in _STOPWORDS.items()}
+    return max(score, key=score.get) if any(score.values()) else "fr"
+
+
+def script_language(path: Path | str | None, given: str = "auto") -> str:
+    """The language to transcribe and align in: the one given, else the script's."""
+    if given and given != "auto":
+        return given
+    try:
+        return detect_language(read_script(Path(path))) if path else "fr"
+    except (OSError, ValueError):
+        return "fr"
+
+
+def set_language(lang: str) -> None:
+    global LANG
+    LANG = lang if lang in _FILLERS else "fr"
+    FILLERS.clear()
+    FILLERS.update(_FILLERS[LANG])
 
 _MD_LINK = re.compile(r"\[([^\]]*)\]\(\s*((?:[^()\s]|\([^()\s]*\))*)\s*\)")   # URLs may hold (parens)
 _WIKI_LINK = re.compile(r"\[\[(?:[^\]|]*\|)?([^\]]*)\]\]")
@@ -74,14 +113,14 @@ def _spell_number(match: re.Match) -> str:
     raw = match.group().replace(",", ".")
     try:
         value = float(raw) if "." in raw else int(raw)
-        return " " + num2words(value, lang="fr") + " "
+        return " " + num2words(value, lang=LANG) + " "
     except (ValueError, OverflowError, NotImplementedError):
         return " " + raw + " "
 
 
 def normalize(text: str) -> list[str]:
     """Lowercase, numbers spelled out, accents and punctuation removed, split on apostrophes."""
-    text = text.replace("%", " pour cent ")
+    text = text.replace("%", _PERCENT[LANG])
     text = _NUMBER.sub(_spell_number, text)
     text = unicodedata.normalize("NFKD", text.lower())
     text = "".join(c for c in text if not unicodedata.combining(c))

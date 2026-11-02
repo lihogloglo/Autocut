@@ -28,6 +28,8 @@ import threading
 import time
 from pathlib import Path
 
+from ..i18n import tr
+
 APPDATA = Path(os.environ.get("APPDATA", Path.home())) / "autocut"
 KEYS_FILE = APPDATA / "keys.json"     # kept apart from app.json, which the page receives whole
 
@@ -64,7 +66,7 @@ def set_quality(q: str) -> None:
 
 def label(engine: str) -> str:
     e = ENGINES.get(engine)
-    return f"{e['label']} ({e['how']})" if e else engine
+    return f"{e['label']} ({tr(e['how'])})" if e else engine
 
 
 # --- Keys and flags ---------------------------------------------------------------------------------
@@ -143,25 +145,27 @@ def _run(cmd: list[str], stdin: str = "", cwd: str | None = None, timeout: float
 def _cli_connected(engine: str) -> tuple[bool, str]:
     path = exe(ENGINES[engine]["exe"])
     if not path:
-        return False, "non installé"
+        return False, tr("non installé")
     try:
         if engine == "claude-code":
             r = _run([path, "auth", "status"], timeout=20, drop_env=("ANTHROPIC_API_KEY",))
             if r.returncode != 0:
-                return False, "pas connecté"
+                return False, tr("pas connecté")
             try:
                 method = json.loads(r.stdout).get("authMethod", "")
             except ValueError:
                 method = ""
-            return True, {"claude.ai": "connecté avec l'abonnement"}.get(method, f"connecté ({method or 'ok'})")
+            return True, (tr("connecté avec l'abonnement") if method == "claude.ai" else
+                          tr("connecté ({method})", method=method or "ok"))
         if engine == "codex":
             r = _run([path, "login", "status"], timeout=20)
             text = (r.stdout + r.stderr).strip()
             ok = r.returncode == 0 and "logged in" in text.lower()
-            return ok, ("connecté avec ChatGPT" if "chatgpt" in text.lower() else text[:80]) if ok else "pas connecté"
+            return ok, ((tr("connecté avec ChatGPT") if "chatgpt" in text.lower() else text[:80]) if ok else
+                        tr("pas connecté"))
         if engine == "antigravity":
             models = _agy_models(path, refresh=True)     # `agy models` needs a signed-in session
-            return (True, "connecté au compte Google") if models else (False, "pas connecté")
+            return (True, tr("connecté au compte Google")) if models else (False, tr("pas connecté"))
     except (OSError, subprocess.SubprocessError) as e:
         return False, f"{type(e).__name__}"
     return False, ""
@@ -170,21 +174,22 @@ def _cli_connected(engine: str) -> tuple[bool, str]:
 def status(engine: str) -> dict:
     """{id, label, how, installed, connected, detail} for the AI page."""
     e = ENGINES[engine]
-    out = {"id": engine, "label": e["label"], "how": e["how"], "vision": e["vision"], "cli": "exe" in e}
+    out = {"id": engine, "label": e["label"], "how": tr(e["how"]), "vision": e["vision"], "cli": "exe" in e}
     if engine == "gemini":
         k = gemini_key()
         out.update(installed=True, connected=bool(k),
-                   detail=f"clé enregistrée ({k[:4]}…{k[-4:]}), {GEMINI_MODEL}" if len(k) > 12 else "pas de clé")
+                   detail=tr("clé enregistrée ({key}), {model}", key=f"{k[:4]}…{k[-4:]}", model=GEMINI_MODEL)
+                   if len(k) > 12 else tr("pas de clé"))
     elif engine == "claude":
         ok = claude_available()
-        out.update(installed=True, connected=ok, detail=f"identifiants trouvés, {CLAUDE_MODEL}" if ok else
-                   "variable ANTHROPIC_API_KEY absente")
+        out.update(installed=True, connected=ok, detail=tr("identifiants trouvés, {model}", model=CLAUDE_MODEL)
+                   if ok else tr("variable ANTHROPIC_API_KEY absente"))
     elif engine == "ollama":
         m = ollama_available()
-        out.update(installed=bool(m), connected=bool(m), detail=f"en marche : {m}" if m else "pas lancé")
+        out.update(installed=bool(m), connected=bool(m), detail=tr("en marche : {model}", model=m) if m else tr("pas lancé"))
     else:
         installed = bool(exe(e["exe"]))
-        ok, detail = _cli_connected(engine) if installed else (False, "non installé")
+        ok, detail = _cli_connected(engine) if installed else (False, tr("non installé"))
         out.update(installed=installed, connected=ok, detail=detail)
     return out
 
@@ -214,13 +219,13 @@ def connect(engine: str) -> str:
     """Opens the CLI's own sign-in (browser) in a console window. Returns what the user should expect."""
     path = exe(ENGINES[engine]["exe"])
     if not path:
-        raise RuntimeError("pas installé")
+        raise RuntimeError(tr("pas installé"))
     cmd = {"claude-code": [path, "auth", "login"], "codex": [path, "login"], "antigravity": [path]}[engine]
     env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY" and not k.startswith("CLAUDECODE")}
     subprocess.Popen(cmd, env=env, cwd=str(Path.home()), creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
     if engine == "antigravity":
-        return "Connectez-vous dans la fenêtre qui s'ouvre (compte Google, dans le navigateur), puis fermez-la."
-    return "Connectez-vous dans le navigateur qui s'ouvre, puis revenez ici."
+        return tr("Connectez-vous dans la fenêtre qui s'ouvre (compte Google, dans le navigateur), puis fermez-la.")
+    return tr("Connectez-vous dans le navigateur qui s'ouvre, puis revenez ici.")
 
 
 def test(engine: str) -> str:
@@ -280,12 +285,14 @@ def usage_summary() -> str:
         items = sorted(_usage.items())
     for (engine, model), u in items:
         k = lambda n: f"{n / 1e6:.2f} M" if n >= 1e6 else f"{n / 1e3:.0f} k"   # noqa: E731
-        tokens = f"{u['calls']} appels, {k(u['in'])} jetons en entrée, {k(u['out'])} en sortie"
+        tokens = tr("{calls} appels, {tokens_in} jetons en entrée, {tokens_out} en sortie", calls=u["calls"],
+                    tokens_in=k(u["in"]), tokens_out=k(u["out"]))
         if engine == "gemini" and (price := _gemini_price(model)):
             cost = u["in"] / 1e6 * price[0] + u["out"] / 1e6 * price[1]
-            lines.append(f"{label(engine)} {model} : {tokens} ≈ {cost:.3f} $ (clé payante ; 0 $ en gratuit)")
+            lines.append(tr("{engine} {model} : {tokens} ≈ {cost} $ (clé payante ; 0 $ en gratuit)",
+                            engine=label(engine), model=model, tokens=tokens, cost=f"{cost:.3f}"))
         elif "exe" in ENGINES.get(engine, {}):
-            lines.append(f"{label(engine)} : {tokens} (compris dans l'abonnement)")
+            lines.append(tr("{engine} : {tokens} (compris dans l'abonnement)", engine=label(engine), tokens=tokens))
         else:
             lines.append(f"{label(engine)} {model} : {tokens}")
     return "\n".join(lines)
@@ -316,22 +323,23 @@ def check_gemini(key: str) -> str | None:
     try:
         r = httpx.get(f"{GEMINI_API}/models/{GEMINI_MODEL}", headers={"x-goog-api-key": key}, timeout=15)
     except httpx.HTTPError as e:
-        return f"Google injoignable ({type(e).__name__})"
+        return tr("Google injoignable ({error})", error=type(e).__name__)
     if r.status_code == 200:
         return None
     msg = _gemini_error(r)
     if r.status_code in (400, 401, 403):
-        return f"clé refusée : {msg}"
+        return tr("clé refusée : {message}", message=msg)
     if r.status_code == 404:
-        return f"clé valide, mais le modèle {GEMINI_MODEL} est introuvable (AUTOCUT_GEMINI_MODEL pour en choisir un autre)"
-    return f"erreur {r.status_code} : {msg}"
+        return tr("clé valide, mais le modèle {model} est introuvable (AUTOCUT_GEMINI_MODEL pour en choisir un autre)",
+                  model=GEMINI_MODEL)
+    return tr("erreur {status} : {message}", status=r.status_code, message=msg)
 
 
 def gemini_json(system: str, content: list, schema: dict, *, timeout: float = 600) -> dict:
     import httpx
     key = gemini_key()
     if not key:
-        raise RuntimeError("pas de clé Gemini")
+        raise RuntimeError(tr("pas de clé Gemini"))
     parts = [{"text": c} if isinstance(c, str) else
              {"inline_data": {"mime_type": "image/jpeg", "data": base64.b64encode(c).decode()}} for c in content]
     model = GEMINI_FAST if _quality == "fast" else GEMINI_MODEL
@@ -366,13 +374,13 @@ def gemini_json(system: str, content: list, schema: dict, *, timeout: float = 60
                (meta.get("candidatesTokenCount") or 0) + (meta.get("thoughtsTokenCount") or 0))
         cand = (data.get("candidates") or [{}])[0]
         if cand.get("finishReason") == "MAX_TOKENS":
-            raise RuntimeError("réponse tronquée")
+            raise RuntimeError(tr("réponse tronquée"))
         text = "".join(p.get("text", "") for p in (cand.get("content") or {}).get("parts", []) if not p.get("thought"))
         if not text:
             block = (data.get("promptFeedback") or {}).get("blockReason") or cand.get("finishReason")
-            raise RuntimeError(f"réponse vide ({block})")
+            raise RuntimeError(tr("réponse vide ({reason})", reason=block))
         return _parse_json(text)
-    raise RuntimeError(f"Gemini refuse la requête : {last}")
+    raise RuntimeError(tr("Gemini refuse la requête : {message}", message=last))
 
 
 def _parse_json(text: str) -> dict:
@@ -410,9 +418,9 @@ def claude_json(system: str, content: list, schema: dict, *, effort: str = "medi
     _count("claude", response.model, (u.input_tokens or 0) + (getattr(u, "cache_read_input_tokens", 0) or 0)
            + (getattr(u, "cache_creation_input_tokens", 0) or 0), u.output_tokens)
     if response.stop_reason == "refusal":
-        raise RuntimeError("requête refusée")
+        raise RuntimeError(tr("requête refusée"))
     if response.stop_reason == "max_tokens":
-        raise RuntimeError("réponse tronquée")
+        raise RuntimeError(tr("réponse tronquée"))
     return json.loads(next(b.text for b in response.content if b.type == "text"))
 
 
@@ -442,7 +450,7 @@ def _cli_prompt(system: str, content: list, folder: Path) -> tuple[str, list[str
 def claude_code_json(system: str, content: list, schema: dict, *, effort: str = "medium", timeout: float = 900) -> dict:
     path = exe("claude")
     if not path:
-        raise RuntimeError("Claude Code n'est pas installé")
+        raise RuntimeError(tr("Claude Code n'est pas installé"))
     with tempfile.TemporaryDirectory(prefix="autocut-ai-") as tmp:
         prompt, images = _cli_prompt(system, content, Path(tmp))
         if images:
@@ -490,7 +498,7 @@ def _codex_models(path: str) -> list[str]:
 def codex_json(system: str, content: list, schema: dict, *, effort: str = "medium", timeout: float = 900) -> dict:
     path = exe("codex")
     if not path:
-        raise RuntimeError("Codex n'est pas installé")
+        raise RuntimeError(tr("Codex n'est pas installé"))
     models = _codex_models(path)
     with tempfile.TemporaryDirectory(prefix="autocut-ai-") as tmp:
         prompt, images = _cli_prompt(system, content, Path(tmp))
@@ -547,7 +555,7 @@ def antigravity_json(system: str, content: list, schema: dict, *, effort: str = 
     goes in request.md, the images next to it, and the prompt asks it to read them (reads need no approval)."""
     path = exe("agy")
     if not path:
-        raise RuntimeError("Antigravity n'est pas installé")
+        raise RuntimeError(tr("Antigravity n'est pas installé"))
     with tempfile.TemporaryDirectory(prefix="autocut-ai-") as tmp:
         prompt, images = _cli_prompt(system, content, Path(tmp))
         if images:
@@ -590,7 +598,7 @@ def ask(engine: str, system: str, content: list, schema: dict, *, effort: str = 
     if engine == "ollama":
         model = ollama_available()
         if not model:
-            raise RuntimeError("Ollama n'est pas lancé")
+            raise RuntimeError(tr("Ollama n'est pas lancé"))
         return ollama_json(system, content, schema, model=model)
     raise ValueError(engine)
 
@@ -614,8 +622,8 @@ def install(engine: str) -> None:
     if cmd[0] == "npm":
         npm = shutil.which("npm") or shutil.which("npm.cmd")
         if not npm:
-            raise SystemExit("Node.js manque (nodejs.org) : installez-le, puis recommencez.")
+            raise SystemExit(tr("Node.js manque (nodejs.org) : installez-le, puis recommencez."))
         cmd[0] = npm
-    print(f"[1/1] installation : {' '.join(cmd[-3:])}")
+    print(tr("[1/1] installation : {command}", command=" ".join(cmd[-3:])))
     subprocess.run(cmd, check=True)
 

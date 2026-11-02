@@ -79,11 +79,15 @@ pre.scene { background: var(--surface-2); border-radius: 7px; padding: 8px 10px;
   <section class="bible" id="bible"></section>
   <div id="beats"></div>
 </main>
+<script src="/i18n.js"></script>
 <script>
 "use strict";
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+if (!window.t) window.t = (s, v) => (v ? s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m)) : s);   // page opened without the server
 const FACE = "face caméra", ARCHIVE = "archive";
+const C = window.I18N && I18N.lang !== "fr" ? ":" : " :";     // French puts a space before a colon
+const techLabel = (n) => (n === FACE || n === ARCHIVE ? t(n) : n);    // the two built-in techniques are French data keys
 const HUES = ["#4a6cf7", "#1f9d63", "#d6453d", "#9b59b6", "#0096aa", "#e67e22"];
 let SB, hidden = new Set();
 
@@ -95,63 +99,63 @@ function color(name) {
   const k = names.indexOf(name);
   return HUES[(k < 0 ? name.length : k) % HUES.length];
 }
-function toast(m) { const t = document.createElement("div"); t.className = "toast"; t.textContent = m; document.body.appendChild(t); setTimeout(() => t.remove(), 2600); }
+function toast(m) { const el = document.createElement("div"); el.className = "toast"; el.textContent = m; document.body.appendChild(el); setTimeout(() => el.remove(), 2600); }
 async function api(path, body) {
   const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
   const d = await r.json();
-  if (!d.ok) throw new Error(d.error || "erreur");
+  if (!d.ok) throw new Error(d.error || t("erreur"));
   return d;
 }
-function copy(text) { navigator.clipboard.writeText(text || ""); toast("Copié"); }
+function copy(text) { navigator.clipboard.writeText(text || ""); toast(t("Copié")); }
 
 function renderBible() {
   const b = SB.style.bible;
-  $("#bible").innerHTML = `<h2>Bible de style</h2>
+  $("#bible").innerHTML = `<h2>${t("Bible de style")}</h2>
     ${SB.style.brief ? `<p class="brief">« ${esc(SB.style.brief)} »</p>` : ""}
     <p>${esc(b.summary)}</p>
     <div class="swatches">${(b.palette || []).map((c) => `<span class="sw"><i style="background:${esc(c.hex)}"></i>${esc(c.name)} ${esc(c.hex)}</span>`).join("")}</div>
-    <div class="chips">${(b.techniques || []).map((t) => `<span class="chip ${hidden.has(t.name) ? "off" : ""}" data-tech="${esc(t.name)}" title="${esc(t.look + " — " + t.use_for)}" style="background:${color(t.name)}">${esc(t.name)} · ${SB.beats.filter((x) => x.technique === t.name).length}</span>`).join("")}</div>
-    <details><summary>Détails</summary>
-      <p><b>Lumière</b> : ${esc(b.lighting)}</p><p><b>Matières</b> : ${esc(b.materials)}</p><p><b>Caméra</b> : ${esc(b.camera)}</p>
-      <p><b>Typographie</b> : ${esc(b.typography)}</p><p><b>Transitions</b> : ${esc(b.transitions)}</p>
-      <p><b>Motifs</b> : ${esc((b.motifs || []).join(" ; "))}</p><p><b>À éviter</b> : ${esc((b.avoid || []).join(" ; "))}</p>
-      <p><b>Style des prompts</b> : ${esc(b.prompt_style)}</p>
-      ${(b.techniques || []).map((t) => `<p><b>${esc(t.name)}</b> : ${esc(t.look)} — pour ${esc(t.use_for)}</p>`).join("")}
+    <div class="chips">${(b.techniques || []).map((x) => `<span class="chip ${hidden.has(x.name) ? "off" : ""}" data-tech="${esc(x.name)}" title="${esc(x.look + " — " + x.use_for)}" style="background:${color(x.name)}">${esc(techLabel(x.name))} · ${SB.beats.filter((y) => y.technique === x.name).length}</span>`).join("")}</div>
+    <details><summary>${t("Détails")}</summary>
+      <p><b>${t("Lumière")}</b>${C} ${esc(b.lighting)}</p><p><b>${t("Matières")}</b>${C} ${esc(b.materials)}</p><p><b>${t("Caméra")}</b>${C} ${esc(b.camera)}</p>
+      <p><b>${t("Typographie")}</b>${C} ${esc(b.typography)}</p><p><b>${t("Transitions")}</b>${C} ${esc(b.transitions)}</p>
+      <p><b>${t("Motifs")}</b>${C} ${esc((b.motifs || []).join(" ; "))}</p><p><b>${t("À éviter")}</b>${C} ${esc((b.avoid || []).join(" ; "))}</p>
+      <p><b>${t("Style des prompts")}</b>${C} ${esc(b.prompt_style)}</p>
+      ${(b.techniques || []).map((x) => `<p><b>${esc(techLabel(x.name))}</b>${C} ${esc(x.look)} — ${t("pour")} ${esc(x.use_for)}</p>`).join("")}
     </details>`;
 }
 
 function field(b, key, label, rows, copyable) {
-  return `<div class="f"><label><span>${label}</span>${copyable ? `<button data-copy="${key}">copier</button>` : ""}</label>
-    <textarea rows="${rows}" data-k="${key}">${esc(b[key])}</textarea></div>`;
+  return `<div class="f"><label><span>${t(label)}</span>${copyable ? `<button data-copy="${key}">${t("copier")}</button>` : ""}</label>
+    <textarea rows="${rows}" data-k="${key}" data-noi18n>${esc(b[key])}</textarea></div>`;
 }
 function beatHtml(b) {
   const techs = SB.style.bible.techniques.map((t) => t.name);
   if (!techs.includes(b.technique)) techs.push(b.technique);
-  const img = b.card ? `<img src="${esc(b.card)}?v=${b._v || 0}" alt="">` : `<div class="face">Face caméra : pas d'illustration</div>`;
+  const img = b.card ? `<img src="${esc(b.card)}?v=${b._v || 0}" alt="">` : `<div class="face">${t("Face caméra : pas d'illustration")}</div>`;
   const scene = b.scene && Object.keys(b.scene).length ? JSON.stringify(b.scene, null, 1) : "";
   return `<article class="beat ${b.locked ? "locked" : ""}" id="${b.id}" style="--tc:${color(b.technique)}" ${hidden.has(b.technique) ? "hidden" : ""}>
-    <div class="card">${img}<div class="quote">« ${esc(b.text)} »</div></div>
+    <div class="card">${img}<div class="quote" data-noi18n>« ${esc(b.text)} »</div></div>
     <div>
-      <div class="head"><span class="id">${b.id}</span><span class="tc">${tc(b.start)} · ${b.duration} s · phrases ${b.first + 1}–${b.last + 1}</span>
-        <select data-k="technique">${techs.map((t) => `<option ${t === b.technique ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
+      <div class="head"><span class="id">${b.id}</span><span class="tc">${tc(b.start)} · ${b.duration} s · ${t("phrases {a}–{b}", { a: b.first + 1, b: b.last + 1 })}</span>
+        <select data-k="technique" data-noi18n>${techs.map((x) => `<option value="${esc(x)}" ${x === b.technique ? "selected" : ""}>${esc(techLabel(x))}</option>`).join("")}</select>
         <span class="sp"></span>
-        <label><input type="checkbox" data-lock ${b.locked ? "checked" : ""}> verrouillé</label></div>
+        <label><input type="checkbox" data-lock ${b.locked ? "checked" : ""}> ${t("verrouillé")}</label></div>
       <input type="text" class="title-in" data-k="title" value="${esc(b.title)}">
       ${field(b, "see", "On voit", 2)}
       ${field(b, "motion", "Mouvement", 1)}
       ${b.technique !== FACE ? field(b, "image_prompt", "Prompt image (anglais)", 3, true) : ""}
       ${b.video_prompt || b.technique !== FACE ? field(b, "video_prompt", "Prompt vidéo (anglais)", 2, true) : ""}
-      ${scene ? `<details class="f"><summary><span>Scène (Blender / MCP) — ${(b.scene.objects || []).length} objets</span> <button data-copy="scene">copier</button></summary><pre class="scene">${esc(scene)}</pre></details>` : ""}
+      ${scene ? `<details class="f"><summary><span>${t("Scène (Blender / MCP) — {n} objets", { n: (b.scene.objects || []).length })}</span> <button data-copy="scene">${t("copier")}</button></summary><pre class="scene" data-noi18n>${esc(scene)}</pre></details>` : ""}
       ${field(b, "notes", "Fabrication", 2)}
       ${b.reuse ? field(b, "reuse", "Rappel", 1) : ""}
-      <div class="redo"><input type="text" placeholder="Refaire ce plan… (facultatif : « plutôt une carte », « plus sobre »)" data-instr>
-        <button class="btn" data-redo>Refaire</button></div>
+      <div class="redo"><input type="text" placeholder="${esc(t("Refaire ce plan… (facultatif : « plutôt une carte », « plus sobre »)"))}" data-instr>
+        <button class="btn" data-redo>${t("Refaire")}</button></div>
     </div></article>`;
 }
 function render() {
   let last = null, html = "";
   for (const b of SB.beats) {
-    if (b.section !== last) { html += `<h3 class="section">${esc(b.section || "Début")}</h3>`; last = b.section; }
+    if (b.section !== last) { html += `<h3 class="section">${b.section ? esc(b.section) : t("Début")}</h3>`; last = b.section; }
     html += beatHtml(b);
   }
   $("#beats").innerHTML = html;
@@ -168,7 +172,7 @@ function save(id, fields) {
       SB.beats[k] = { ...d.beat, _v: v };
       const img = $(`#${id} img`);
       if (img && !("locked" in fields && Object.keys(fields).length === 1)) img.src = `${d.beat.card}?v=${v}`;
-    } catch (e) { toast("Non enregistré : " + e.message); }
+    } catch (e) { toast(t("Non enregistré : {error}", { error: e.message })); }
   }, 500);
 }
 
@@ -204,24 +208,24 @@ document.addEventListener("click", async (e) => {
     copy(e.target.dataset.copy === "scene" ? JSON.stringify(b.scene, null, 1) : $(`[data-k=${e.target.dataset.copy}]`, art).value);
   } else if (e.target.dataset.redo !== undefined) {
     art.classList.add("busy");
-    e.target.textContent = "L'IA réfléchit…";
+    e.target.textContent = t("L'IA réfléchit…");
     try {
       const d = await api("/api/redo", { id: b.id, instruction: $("[data-instr]", art).value });
       const k = SB.beats.findIndex((x) => x.id === b.id);
       SB.beats[k] = { ...d.beat, _v: (b._v || 0) + 1 };
       art.outerHTML = beatHtml(SB.beats[k]);
-      toast(`${b.id} refait`);
+      toast(t("{id} refait", { id: b.id }));
     } catch (err) {
-      toast("Échec : " + err.message);
+      toast(t("Échec : {error}", { error: err.message }));
       art.classList.remove("busy");
-      e.target.textContent = "Refaire";
+      e.target.textContent = t("Refaire");
     }
   }
 });
 $("#xml").addEventListener("click", async () => {
   $("#xml").disabled = true;
-  try { const d = await api("/api/xml"); toast("XML écrit : " + d.path.split(/[\\/]/).pop()); }
-  catch (e) { toast("Échec : " + e.message); }
+  try { const d = await api("/api/xml"); toast(t("XML écrit : {file}", { file: d.path.split(/[\\/]/).pop() })); }
+  catch (e) { toast(t("Échec : {error}", { error: e.message })); }
   $("#xml").disabled = false;
 });
 $("#copy-md").addEventListener("click", async () => copy(await (await fetch("storyboard.md", { cache: "no-store" })).text()));
@@ -230,7 +234,8 @@ $("#copy-md").addEventListener("click", async () => copy(await (await fetch("sto
   SB = await (await fetch("storyboard.json", { cache: "no-store" })).json();
   document.title = `Storyboard — ${SB.title}`;
   $("#title").textContent = SB.title;
-  $("#meta").textContent = `${SB.beats.length} plans · durées ${SB.timing === "montage" ? "du montage" : "estimées"} · ${SB.engine} · ${SB.created}`;
+  $("#meta").textContent = [t("{n} plans", { n: SB.beats.length }), t(SB.timing === "montage" ? "durées du montage" : "durées estimées"),
+                             SB.engine, SB.created].join(" · ");
   renderBible();
   render();
 })();

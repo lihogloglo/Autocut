@@ -173,3 +173,51 @@ def test_panel_sequence_and_lanes(tmp_path):
         (sec / name).write_bytes(b"")
     assert [(s, p.name) for s, p in exported_files(tmp_path)] == [(13, "S014-01 page - a.jpg"),
                                                                     (13, "S014-02 web - b.png")]
+
+
+# --- dates ---------------------------------------------------------------------------------------
+
+def test_norm_date():
+    from autocut.sourcing.model import norm_date
+    assert norm_date("2019:03:16 14:02:11") == "2019-03-16"                 # EXIF
+    assert norm_date("20190316") == "2019-03-16"                            # YouTube
+    assert norm_date('<time class="dtstart" datetime="2019-03-16">16 March 2019</time>') == "2019-03-16"
+    assert norm_date("16 mars 2026") == "2026-03-16"
+    assert norm_date("March 2026") == "2026-03"
+    assert norm_date("ca. 1850–60") == "~1850"
+    assert norm_date(["1871", "1871"]) == "1871"
+    assert norm_date("2026-05-01T08:00:00+02:00") == "2026-05-01"
+    assert norm_date(1552694400) == "2019-03-16"
+    assert norm_date("unknown") == "" and norm_date(None) == ""
+
+
+def test_period_range():
+    from autocut.sourcing.model import period_range
+    assert period_range("2026") == (2026, 2026)
+    assert period_range("mars 2026") == (2026, 2026)
+    assert period_range("1789-1794") == (1789, 1794)
+    assert period_range("1914-18") == (1914, 1918)
+    assert period_range("années 1960") == (1960, 1969)
+    assert period_range("XIXe siècle") == (1801, 1900)
+    assert period_range("") is None
+
+
+def test_date_note():
+    from autocut.sourcing.model import Asset, date_note
+    photo = Asset(id="x", kind="image", via="commons", origin="recherche", sentence=0, paragraph=0, date="2019-03-16")
+    assert date_note(photo, "2026") == "image de 2019, le passage parle de 2026"
+    assert date_note(photo, "2018-2019") == ""
+    assert date_note(photo, "2026", "carte") == ""                          # maps, portraits: older is fine
+    vid = Asset(id="y", kind="video", via="youtube", origin="recherche", sentence=0, paragraph=0, date="2020-01-04")
+    assert date_note(vid, "mars 2026").startswith("vidéo de 2020")
+    vid.date = "2026-03-20"
+    assert date_note(vid, "mars 2026") == ""
+
+
+def test_heuristic_period(tmp_path):
+    from autocut.sourcing.script import parse_script
+    from autocut.sourcing.search import heuristic_queries
+    md = tmp_path / "s.md"
+    md.write_text("# A\n\nEn 2019, la grève de la RATP paralyse Paris.\n\nUne idée sans date.\n", encoding="utf-8")
+    qs = heuristic_queries(parse_script(md))
+    assert [q.period for q in qs] == ["2019", ""]

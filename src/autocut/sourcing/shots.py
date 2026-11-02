@@ -18,8 +18,9 @@ from urllib.parse import unquote, urlparse
 
 from PIL import Image
 
+from ..i18n import tr
 from . import embed
-from .collect import Ctx, thumb
+from .collect import Ctx, page_date, thumb, url_date
 from .model import QUOTE, Asset
 from .script import Link, ScriptSentence
 
@@ -234,6 +235,12 @@ def _shoot(ctx: Ctx, page, job: Job, log, tall: int = 4000) -> list[Asset]:
     blocks, has_anchor, title = page.evaluate(BLOCKS_JS, frag)
     title = (title or urlparse(job.url).netloc)[:120]
     host = urlparse(job.url).netloc
+    when = ""
+    if not host.endswith(("wikipedia.org", "wikimedia.org")):    # their "datePublished" is the article's creation
+        try:
+            when = page_date(page.content()) or url_date(job.url)
+        except Exception:
+            pass
 
     def asset(path, s, what, note=""):
         with Image.open(path) as im:
@@ -241,19 +248,19 @@ def _shoot(ctx: Ctx, page, job: Job, log, tall: int = 4000) -> list[Asset]:
         return Asset(id=Asset.make_id("capture", job.url, path.name, s.idx), kind="screenshot", via="capture",
                      origin="lien", sentence=s.idx, paragraph=s.paragraph, url=job.url, file=ctx.rel(path),
                      thumb=thumb(ctx, path), source_page=job.url, title=f"{title} — {what}", author=host,
-                     rights=QUOTE, width=w, height=h, note=note)
+                     rights=QUOTE, width=w, height=h, note=note, date=when)
 
     out = []
     top = folder / f"{key}_haut.png"
     _capture(page, top, None, tall)
     first = job.cites[0][0]
-    out.append(asset(top, first, "haut de page"))
+    out.append(asset(top, first, tr("haut de page")))
     done = {}
     for s, link in job.cites:
         idx, score = _passage(s, link, blocks)
         if idx is None:
             continue
-        note = "" if score >= 0.45 else "passage incertain : vérifier le surlignage"
+        note = "" if score >= 0.45 else tr("passage incertain : vérifier le surlignage")
         if idx not in done:
             plain = folder / f"{key}_{idx}_passage.png"
             mark = folder / f"{key}_{idx}_surligne.png"
@@ -263,11 +270,11 @@ def _shoot(ctx: Ctx, page, job: Job, log, tall: int = 4000) -> list[Asset]:
             page.evaluate(MARK_JS, [idx, False])
             done[idx] = (plain, mark)
         plain, mark = done[idx]
-        a, b = asset(plain, s, "passage", note), asset(mark, s, "passage surligné", note)
+        a, b = asset(plain, s, tr("passage"), note), asset(mark, s, tr("passage surligné"), note)
         a.score = b.score = round(score, 3) + 0.3
         out += [b, a]
         if s is not first:
-            out.append(asset(top, s, "haut de page"))
+            out.append(asset(top, s, tr("haut de page")))
     return out
 
 
@@ -298,7 +305,7 @@ class ScreenshotWorker(threading.Thread):
                 while (job := self.jobs.get()) is not None:
                     host = urlparse(job.url).netloc
                     if failed.get(host, 0) >= 2:
-                        self.ctx.errors.append({"url": job.url, "error": "capture : site qui bloque le navigateur, ignoré"})
+                        self.ctx.errors.append({"url": job.url, "error": tr("capture : site qui bloque le navigateur, ignoré")})
                         self.done += 1
                         continue
                     page = context.new_page()
@@ -306,14 +313,14 @@ class ScreenshotWorker(threading.Thread):
                         self.assets += _shoot(self.ctx, page, job, self.log, self.height)
                     except Unreachable as e:
                         failed[host] = failed.get(host, 0) + 1
-                        self.ctx.errors.append({"url": job.url, "error": f"capture : page inaccessible {str(e)[:120]}"})
+                        self.ctx.errors.append({"url": job.url, "error": tr("capture : page inaccessible {error}", error=str(e)[:120])})
                     except Exception as e:      # this page only (slow, odd layout): the site may be fine
-                        self.ctx.errors.append({"url": job.url, "error": f"capture : {type(e).__name__} {str(e)[:120]}"})
+                        self.ctx.errors.append({"url": job.url, "error": tr("capture : {error}", error=f"{type(e).__name__} {str(e)[:120]}")})
                     finally:
                         page.close()
                         self.done += 1
                 browser.close()
         except Exception as e:
-            self.ctx.errors.append({"url": "", "error": f"captures impossibles : {e}"})
+            self.ctx.errors.append({"url": "", "error": tr("captures impossibles : {error}", error=e)})
             while self.jobs.get() is not None:
                 pass

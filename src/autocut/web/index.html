@@ -23,6 +23,8 @@
     <nav class="steps setup-nav">
       <button class="step" data-step="ai"><span class="num gear">✦</span><span class="txt"><b>IA</b><small></small></span></button>
       <button class="step" data-step="setup"><span class="num gear">⚙</span><span class="txt"><b>Installation</b><small>vérification…</small></span></button>
+      <label class="ui-lang" title="Langue de l'interface"><span aria-hidden="true">🌐</span>
+        <select id="ui-lang" aria-label="Langue de l'interface" data-noi18n></select></label>
     </nav>
   </aside>
 
@@ -65,6 +67,13 @@
       <details class="settings">
         <summary>Réglages</summary>
         <div class="grid">
+          <label>Langue de la vidéo
+            <select data-opt="lang">
+              <option value="auto">Celle du script (auto)</option>
+              <option value="fr">Français</option>
+              <option value="en">English</option>
+            </select>
+          </label>
           <label>Transcription
             <select data-opt="model">
               <option value="large-v3">Précise (large-v3)</option>
@@ -205,6 +214,7 @@
 </div>
 <div class="veil" id="veil"><div>Déposez sur l'étape</div></div>
 <div class="toasts" id="toasts"></div>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

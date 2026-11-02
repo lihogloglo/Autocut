@@ -24,6 +24,8 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from .i18n import tr
+
 APPDATA = Path(os.environ.get("APPDATA", Path.home())) / "autocut"
 STATE_FILE = APPDATA / "app.json"
 WEB = Path(__file__).parent / "web"
@@ -37,10 +39,10 @@ NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 DEFAULTS = {
     "script": "", "rushes": [], "sync_out": "",
     "xml": "", "sequence": "", "mode": "continue", "keep": None, "derush_out": "",
-    "place_xml": "", "chain": True, "step": "sync", "sb_refs": [],
+    "place_xml": "", "chain": True, "step": "sync", "sb_refs": [], "ui_lang": "",
     "opts": {"model": "large-v3", "max_pause": 0.6, "pad_in": 0.12, "pad_out": 0.25,
              "shots": True, "search": True, "web": True, "videos": True, "llm": "auto", "judge": True, "brief": "", "quality": "best",
-             "sb_style": "", "sb_pace": 6,
+             "sb_style": "", "sb_pace": 6, "lang": "auto",
              "shot_height": 4000, "segment": 30, "full_max": 10},
 }
 
@@ -97,7 +99,9 @@ class Job:
     def start(self, step: str, module_args: list[str], on_done) -> None:
         fd, result = tempfile.mkstemp(prefix="autocut-", suffix=".txt")
         os.close(fd)
-        env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1", "AUTOCUT_RESULT": result}
+        from .i18n import ui_lang
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1", "AUTOCUT_RESULT": result,
+               "AUTOCUT_LANG": ui_lang()}
         self.stopped, self.step = False, step
         self.proc = subprocess.Popen([_python(), "-u", "-m", *module_args], stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env,
@@ -181,9 +185,9 @@ class Job:
         out = Path(result).read_text(encoding="utf-8").strip() if Path(result).exists() else ""
         Path(result).unlink(missing_ok=True)
         if self.stopped:
-            ev = {"ok": False, "message": "Arrêté."}
+            ev = {"ok": False, "message": tr("Arrêté.")}
         elif rc == 0:
-            ev = {"ok": True, "message": on_done(out) or "Terminé."}
+            ev = {"ok": True, "message": on_done(out) or tr("Terminé.")}
         else:
             last = next((t.strip() for t in reversed(tail) if re.match(r"^\w*(Error|Exception)\b", t.strip())),
                         tail[-1].strip() if tail else f"code {rc}")
@@ -206,6 +210,7 @@ class Api:
         self._scan_key = None
         self._scan: dict = {}
         self._sheet = None
+        self._sheet_window = None
         self._manifest_cache: tuple = (None, 0)
         self._lock = threading.Lock()
         self._checks: list[dict] | None = None
@@ -244,7 +249,7 @@ class Api:
         """Which API keys are saved, shown masked: the key itself never goes to the page."""
         from .sourcing.llm import gemini_key
         k = gemini_key()
-        return {"gemini": f"{k[:4]}…{k[-4:]}" if len(k) > 12 else ("enregistrée" if k else "")}
+        return {"gemini": f"{k[:4]}…{k[-4:]}" if len(k) > 12 else (tr("enregistrée") if k else "")}
 
     def _sequences(self) -> list[str]:
         if not self._state["xml"]:
@@ -269,12 +274,14 @@ class Api:
             try:
                 from .premiere_xml import PremiereSequence
                 from .transcribe import SourceTranscript, _merge
+                from .text import script_language
                 seq = PremiereSequence.from_file(p, s["sequence"] or None)
+                lang = script_language(s["script"] or None, s["opts"].get("lang", "auto"))
                 info = seq.derushed_until()
                 todo = known = 0.0
                 for src, ranges in seq.analysis_needs().items():
                     total = sum(b - a for a, b in _merge(ranges))
-                    miss = sum(b - a for a, b in SourceTranscript(src, s["opts"]["model"], "fr").missing(ranges))
+                    miss = sum(b - a for a, b in SourceTranscript(src, s["opts"]["model"], lang).missing(ranges))
                     todo, known = todo + min(miss, total), known + total
                 info.update(name=seq.name, to_transcribe=todo, heard=known, skipped=sorted(set(seq.skipped)))
             except Exception as exc:  # shown in the page
@@ -307,10 +314,10 @@ class Api:
             info["chosen"] = len(json.loads((out / "selection.json").read_text(encoding="utf-8")))
         except (OSError, ValueError):
             pass
-        export = out / "export"
-        if export.is_dir():
-            info["exported"] = sum(1 for f in export.rglob("*") if f.is_file() and f.suffix.lower() not in
-                                   (".xml", ".csv", ".txt"))
+        media = out / "médias"          # downloaded from the planche (sourcing/library.py)
+        if media.is_dir():
+            info["exported"] = sum(1 for f in media.rglob("*") if f.is_file() and f.suffix.lower() not in
+                                   (".xml", ".csv", ".txt", ".part", ".ytdl", ".tmp"))
         return info
 
     def _sb_out(self) -> Path | None:
@@ -336,6 +343,29 @@ class Api:
             info["xml"] = str(xml) if xml else ""
         return info
 
+    # interface language
+    def i18n(self) -> dict:
+        from .i18n import NAMES, catalog, ui_lang
+        lang = ui_lang()
+        return {"lang": lang, "dict": catalog(lang), "names": NAMES}
+
+    def set_ui_lang(self, lang: str) -> None:
+        """Saved in app.json (read by every page and job), then the open pages reload in that language."""
+        from .i18n import NAMES
+        if lang not in NAMES:
+            return
+        self._state["ui_lang"] = lang
+        self._save()
+        self._checks = self._ai = None          # their texts come from Python: checked again in the new language
+        threading.Thread(target=self.check, daemon=True).start()
+        threading.Thread(target=self.ai_check, daemon=True).start()
+        for win in (self._window, self._sheet_window[0] if self._sheet_window else None):
+            if win:
+                try:
+                    win.evaluate_js("location.reload()")
+                except Exception:
+                    pass
+
     def init(self) -> dict:
         return self.view()
 
@@ -359,7 +389,7 @@ class Api:
         try:
             msg = llm.connect(engine)
         except Exception as e:
-            return {"ok": False, "message": f"{llm.label(engine)} : {e}"}
+            return {"ok": False, "message": tr("{engine} : {error}", engine=llm.label(engine), error=e)}
         return {"ok": True, "message": msg}
 
     def ai_test(self, engine: str) -> dict:
@@ -367,9 +397,9 @@ class Api:
         llm.set_quality("fast")
         try:
             answer = llm.test(engine)
-            ok, msg = True, f"{llm.label(engine)} répond et voit les images (« {answer} »)."
+            ok, msg = True, tr("{engine} répond et voit les images (« {answer} »).", engine=llm.label(engine), answer=answer)
         except Exception as e:
-            ok, msg = False, f"{llm.label(engine)} : {type(e).__name__} : {str(e)[:200]}"
+            ok, msg = False, tr("{engine} : {error}", engine=llm.label(engine), error=f"{type(e).__name__} : {str(e)[:200]}")
         finally:
             llm.set_quality(self._state["opts"].get("quality", "best"))
         self.ai_check()
@@ -377,9 +407,9 @@ class Api:
 
     def ai_install(self, engine: str) -> dict:
         if self._job.running:
-            return {"ok": False, "message": "Une étape tourne déjà."}
+            return {"ok": False, "message": tr("Une étape tourne déjà.")}
         self._job.start("setup", ["autocut.setup", "install", "ai", engine],
-                        lambda r: (self.ai_check(), "Installé : cliquez « Connecter ».")[1])
+                        lambda r: (self.ai_check(), tr("Installé : cliquez « Connecter »."))[1])
         return {"ok": True}
 
     # inputs
@@ -391,28 +421,28 @@ class Api:
             ext = p.suffix.lower()
             if p.is_file() and ext in SCRIPT_EXT:
                 s["script"] = str(p)
-                notes.append(f"Script : {p.name}")
+                notes.append(tr("Script : {name}", name=p.name))
             elif p.is_file() and ext == ".xml":
                 if zone == "sources":
                     s["place_xml"] = str(p)
-                    notes.append(f"Images placées sur : {p.name}")
+                    notes.append(tr("Images placées sur : {name}", name=p.name))
                 else:
                     s["xml"], s["sequence"], s["keep"], s["mode"] = str(p), "", None, "continue"
-                    notes.append(f"Séquence pour le derush : {p.name}")
+                    notes.append(tr("Séquence pour le derush : {name}", name=p.name))
                     if zone != "derush":
                         s["step"] = "derush"
             elif p.is_file() and ext in IMAGE_EXT and zone == "storyboard":
                 if str(p) not in s["sb_refs"]:
                     s["sb_refs"].append(str(p))
-                notes.append(f"Référence de style : {p.name}")
+                notes.append(tr("Référence de style : {name}", name=p.name))
             elif p.is_dir() or (p.is_file() and ext in MEDIA_EXT):
                 if str(p) not in s["rushes"]:
                     s["rushes"].append(str(p))
                 if zone != "sync":
                     s["step"] = "sync"
-                notes.append(f"Rush : {p.name}")
+                notes.append(tr("Rush : {name}", name=p.name))
             else:
-                notes.append(f"Ignoré : {p.name}")
+                notes.append(tr("Ignoré : {name}", name=p.name))
         if s["xml"] and s["sequence"] and s["sequence"] not in self._sequences():
             s["sequence"] = ""
         self._save()
@@ -420,16 +450,16 @@ class Api:
 
     def pick(self, zone: str, folder: bool = False) -> dict | None:
         import webview
-        types = {"sync": ("Rushs (*.mp4;*.mov;*.mxf;*.mkv;*.wav;*.bwf;*.aif;*.aiff;*.flac;*.mp3;*.m4a)",),
-                 "derush": ("Séquence Premiere (*.xml)",),
-                 "sources": ("Derush ou montage (*.xml)",),
-                 "script": ("Script (*.md;*.txt;*.docx)",),
-                 "storyboard": ("Images de référence (*.jpg;*.jpeg;*.png;*.webp)",)}.get(zone, ())
+        types = {"sync": (tr("Rushs") + " (*.mp4;*.mov;*.mxf;*.mkv;*.wav;*.bwf;*.aif;*.aiff;*.flac;*.mp3;*.m4a)",),
+                 "derush": (tr("Séquence Premiere") + " (*.xml)",),
+                 "sources": (tr("Derush ou montage") + " (*.xml)",),
+                 "script": (tr("Script") + " (*.md;*.txt;*.docx)",),
+                 "storyboard": (tr("Images de référence") + " (*.jpg;*.jpeg;*.png;*.webp)",)}.get(zone, ())
         if folder:
             paths = self._window.create_file_dialog(webview.FileDialog.FOLDER)
         else:
             paths = self._window.create_file_dialog(webview.FileDialog.OPEN, allow_multiple=zone in ("sync", "storyboard"),
-                                                   file_types=types + ("Tous les fichiers (*.*)",))
+                                                   file_types=types + (tr("Tous les fichiers") + " (*.*)",))
         if not paths:
             return None
         return self.add(zone, list(paths) if not isinstance(paths, str) else [paths])
@@ -460,42 +490,43 @@ class Api:
         from .sourcing import llm
         value = (value or "").strip()
         if name != "gemini":
-            return {"ok": False, "message": "Clé inconnue."}
+            return {"ok": False, "message": tr("Clé inconnue.")}
         if value:
             err = llm.check_gemini(value)
             if err:
-                return {"ok": False, "message": f"Gemini : {err}", "view": self.view()}
+                return {"ok": False, "message": tr("{engine} : {error}", engine="Gemini", error=err), "view": self.view()}
         llm.save_key(name, value)
         threading.Thread(target=self.ai_check, daemon=True).start()
-        return {"ok": True, "message": "Clé Gemini enregistrée." if value else "Clé Gemini oubliée.",
+        return {"ok": True, "message": tr("Clé Gemini enregistrée.") if value else tr("Clé Gemini oubliée."),
                 "view": self.view()}
 
     # jobs
     def run(self, step: str) -> dict:
         s, o = self._state, self._state["opts"]
         if self._job.running:
-            return {"ok": False, "message": "Une étape tourne déjà."}
+            return {"ok": False, "message": tr("Une étape tourne déjà.")}
         if step == "sync":
             if not s["rushes"]:
-                return {"ok": False, "message": "Déposez d'abord les rushs."}
+                return {"ok": False, "message": tr("Déposez d'abord les rushs.")}
             args = ["autocut", *s["rushes"], "--model", o["model"]]
             self._job.start("sync", args, self._sync_done)
         elif step == "derush":
             if not s["xml"]:
-                return {"ok": False, "message": "Déposez d'abord une séquence (.xml)."}
+                return {"ok": False, "message": tr("Déposez d'abord une séquence (.xml).")}
             if not s["script"]:
-                return {"ok": False, "message": "Le derush a besoin du script."}
+                return {"ok": False, "message": tr("Le derush a besoin du script.")}
             keep = "0"
             if s["mode"] == "continue":
                 keep = str(s["keep"]) if s["keep"] is not None else "auto"
             args = ["autocut", s["xml"], s["script"], "--model", o["model"], "--max-pause", str(o["max_pause"]),
-                    "--pad-in", str(o["pad_in"]), "--pad-out", str(o["pad_out"]), "--keep-until", keep]
+                    "--pad-in", str(o["pad_in"]), "--pad-out", str(o["pad_out"]), "--keep-until", keep,
+                    "--language", o.get("lang", "auto")]
             if s["sequence"]:
                 args += ["--sequence", s["sequence"]]
             self._job.start("derush", args, self._derush_done)
         elif step == "collect":
             if not s["script"]:
-                return {"ok": False, "message": "Déposez d'abord le script."}
+                return {"ok": False, "message": tr("Déposez d'abord le script.")}
             args = ["autocut.sourcing", "collect", s["script"], "--llm", o["llm"], "--quality", o.get("quality", "best"),
                     "--segment", str(o["segment"]),
                     "--full-video-max", str(float(o["full_max"]) * 60), "--shot-height", str(o["shot_height"])]
@@ -508,19 +539,20 @@ class Api:
         elif step == "place":
             out = self._sources_out()
             if not out or not (out / "selection.json").exists():
-                return {"ok": False, "message": "Choisissez d'abord des images dans la planche."}
+                return {"ok": False, "message": tr("Choisissez d'abord des images dans la planche.")}
             if not s["place_xml"]:
-                return {"ok": False, "message": "Déposez la séquence où placer les images (.xml)."}
+                return {"ok": False, "message": tr("Déposez la séquence où placer les images (.xml).")}
             derush, edit = self._place_inputs()
             args = ["autocut.sourcing", "export", str(out), "--model", o["model"]]
             if derush:
                 args += ["--derush", str(derush)]
             if edit:
                 args += ["--edit", str(edit)]
-            self._job.start("place", args, lambda r: "Placé : importez le .xml du dossier « export » dans Premiere.")
+            self._job.start("place", args, lambda r: tr("Placé : importez « {name} » dans Premiere (Fichier > Importer).",
+                                                        name=Path(r).name) if r else "")
         elif step == "storyboard":
             if not s["script"]:
-                return {"ok": False, "message": "Déposez d'abord le script."}
+                return {"ok": False, "message": tr("Déposez d'abord le script.")}
             args = ["autocut.storyboard", "make", s["script"], "--llm", o["llm"], "--quality", o.get("quality", "best"),
                     "--pace", str(o.get("sb_pace") or 6), "--style", (o.get("sb_style") or "").strip()]
             for r in s["sb_refs"]:
@@ -558,10 +590,10 @@ class Api:
 
     def install(self, item: str) -> dict:
         if self._job.running:
-            return {"ok": False, "message": "Une étape tourne déjà."}
+            return {"ok": False, "message": tr("Une étape tourne déjà.")}
         what, _, arg = item.partition(":")
         self._job.start("setup", ["autocut.setup", "install", what, *([arg] if arg else [])],
-                        lambda r: (self.check(), "Installé.")[1])
+                        lambda r: (self.check(), tr("Installé."))[1])
         return {"ok": True}
 
     def open_url(self, url: str) -> None:
@@ -579,8 +611,8 @@ class Api:
         if s["chain"] and s["script"] and result:
             threading.Timer(0.3, lambda: (self.set("step", "derush"), self._push(), self.run("derush"),
                                           self._push())).start()
-            return f"{Path(result).name} écrit. Le derush enchaîne…"
-        return f"{Path(result).name} écrit : à importer dans Premiere (Fichier > Importer)."
+            return tr("{name} écrit. Le derush enchaîne…", name=Path(result).name)
+        return tr("{name} écrit : à importer dans Premiere (Fichier > Importer).", name=Path(result).name)
 
     def _derush_done(self, result: str) -> str:
         if result:
@@ -594,17 +626,17 @@ class Api:
         if report and report.exists():
             lines = [ln for ln in report.read_text(encoding="utf-8-sig").splitlines() if ln.strip()]
             summary = next((ln for ln in lines if ln.startswith("Source ")), "")
-        return f"{Path(result).name} écrit. {summary}".strip()
+        return tr("{name} écrit. {summary}", name=Path(result).name, summary=summary).strip()
 
     def _storyboard_done(self, result: str) -> str:
         self._push()
         self.open_storyboard()
-        return "Storyboard prêt : il s'ouvre dans le navigateur. Premiere : panneau Autocut › Storyboard, ou le .xml."
+        return tr("Storyboard prêt : il s'ouvre dans le navigateur. Premiere : panneau Autocut › Storyboard, ou le .xml.")
 
     def open_storyboard(self) -> dict:
         out = self._sb_out()
         if not out or not (out / "storyboard.json").exists():
-            return {"ok": False, "message": "Générez d'abord le storyboard."}
+            return {"ok": False, "message": tr("Générez d'abord le storyboard.")}
         from .storyboard import serve
         if self._sb_server:
             self._sb_server.shutdown()
@@ -614,7 +646,7 @@ class Api:
     def _collect_done(self, result: str) -> str:
         self._push()
         self.open_sheet()
-        return "Collecte terminée : la planche s'ouvre dans le navigateur."
+        return tr("Collecte terminée : la planche s'ouvre dans sa fenêtre.")
 
     # files
     def open_path(self, path: str) -> None:
@@ -628,13 +660,40 @@ class Api:
     def open_sheet(self) -> dict:
         out = self._sources_out()
         if not out or not (out / "manifest.json").exists():
-            return {"ok": False, "message": "Collectez d'abord."}
+            return {"ok": False, "message": tr("Collectez d'abord.")}
         from .sourcing.sheet import serve
         if self._sheet:
             self._sheet.shutdown()
-        derush, edit = self._place_inputs()
-        self._sheet, url = serve(out, derush, edit=edit)
+        self._sheet, url = serve(out, open_browser=False)
+        self._sheet_window_open(out, url)
         return {"ok": True}
+
+    def _sheet_window_open(self, out: Path, url: str) -> None:
+        """The planche in its own Autocut window (not the browser): cards can be dragged into Premiere."""
+        import webview
+
+        from .sourcing.drag import Dragger, SheetApi
+        dragger = Dragger(out)
+        if self._sheet_window is not None:
+            win, api = self._sheet_window
+            try:      # same window, new server / collection
+                dragger.window = win
+                api._d = dragger
+                win.load_url(url)
+                win.restore()
+                win.show()
+                return
+            except Exception:
+                self._sheet_window = None
+        api = SheetApi(dragger)
+        win = webview.create_window(tr("Planche"), url, js_api=api, width=1500, height=950, min_size=(600, 400),
+                                    text_select=True)
+        dragger.window = win
+        self._sheet_window = (win, api)
+
+        def closed():
+            self._sheet_window = None
+        win.events.closed += closed
 
     def report(self) -> None:
         r = self._state["derush_out"]
@@ -689,6 +748,7 @@ def main(tab: int = 0) -> None:
     window.events.loaded += lambda: threading.Thread(target=api.check, daemon=True).start()
     window.events.loaded += lambda: threading.Thread(target=api.ai_check, daemon=True).start()
     window.events.closing += lambda: api._job.stop()
+    window.events.closed += lambda: api._sheet_window and api._sheet_window[0].destroy()
     from .sourcing import bridge
     bridge.start(lambda kind="sources": (api._sb_out() if kind == "storyboard" else api._sources_out(),
                                          Path(api._state["derush_out"]) if api._state["derush_out"] else None))

@@ -17,9 +17,10 @@ from collections import Counter
 from dataclasses import dataclass, field, replace
 from urllib.parse import unquote, urlparse
 
+from ..i18n import tr
 from . import embed
-from .collect import Ctx, video, wikipedia
-from .model import CHECK, FREE, PROTECTED, QUOTE, Asset, rights_for
+from .collect import Ctx, url_date, video, video_date, wikipedia
+from .model import CHECK, FREE, PROTECTED, QUOTE, Asset, norm_date, rights_for
 from .script import ScriptDoc, ScriptSentence
 
 STOP = set("""
@@ -60,6 +61,7 @@ class Query:
     nature: str = ""                 # kind of picture wanted: carte, portrait, photo, peinture, ...
     known: list[tuple[str, str]] = field(default_factory=list)       # (famous picture, where it is held)
     archives: list[str] = field(default_factory=list)                # museum / library catalogue queries
+    period: str = ""                 # what time the paragraph is about: "2026", "mars 2026", "1789-1794"
     extract_note: bool = False       # "(extrait …)" in the paragraph
     video_covered: bool = False      # the cited video is the excerpt asked for
     by: str = "heuristique"
@@ -158,7 +160,8 @@ def heuristic_queries(doc: ScriptDoc) -> list[Query]:
         q = Query(p, ss[0].idx, text, fr, [q for q in dict.fromkeys(en) if q.strip()], vq,
                   section=doc.sections[ss[0].section].title,
                   links=[(link.anchor, link.url) for s in ss for link in s.links], cited_wiki=wiki,
-                  web=fr[:1], extract_note=note is not None, video_covered=covered)
+                  web=fr[:1], extract_note=note is not None, video_covered=covered,
+                  period="-".join(sorted({years[0], years[-1]})) if years else "")
         # a name alone finds the country, the person or the brand, not the event: only with a year
         if ents and years:
             q.wiki_search = " ".join(ents[:2] + years[:1])
@@ -180,7 +183,16 @@ l'objet, le document. Sers-toi des paragraphes voisins et du sujet du script pou
 chilien d'octobre 2019, pas le Chili en général. Une image du pays, une vidéo touristique ou une photo sur le \
 thème général ne servent à rien : le monteur veut des images de ce dont le texte parle.
 
+Les dates comptent autant que les lieux. Pour un sujet d'actualité, le piège classique : les recherches \
+ramènent surtout des photos et vidéos d'événements antérieurs semblables (les manifestations d'il y a cinq ans, \
+l'élection précédente, une autre grève au même endroit). Mets l'année (et le mois si utile) dans les requêtes \
+web, youtube et commons quand le paragraphe parle d'un événement daté, pour obtenir CET événement.
+
 Champs :
+- periode : la date ou la période dont parle le paragraphe, déduite du texte ET du script entier : « 2026 », \
+« mars 2026 », « 1789-1794 », « années 1960 ». Dans un script sur des manifestations de 2026, les paragraphes \
+sur ces manifestations sont « 2026 » même si l'année n'y est pas répétée ; un paragraphe qui rappelle les \
+Gilets jaunes est « 2018-2019 ». Chaîne vide si le paragraphe est intemporel (une idée, un concept).
 - nature : le type d'image qui illustre le mieux le paragraphe. carte (territoire, frontières, itinéraire, \
 plan de ville ancien, expansion d'un empire), portrait (une personne), photo (événement photographié, après \
 1850 environ), peinture ou gravure (événement ou scène d'avant la photo, ou représentation célèbre), document \
@@ -220,9 +232,11 @@ def _with_brief(payload: dict, brief: str) -> dict:
 _SCHEMA = {"type": "object", "additionalProperties": False, "required": ["queries"], "properties": {
     "queries": {"type": "array", "items": {
         "type": "object", "additionalProperties": False,
-        "required": ["id", "nature", "connues", "wikipedia", "commons", "archives", "web", "youtube", "visual"],
+        "required": ["id", "periode", "nature", "connues", "wikipedia", "commons", "archives", "web", "youtube",
+                     "visual"],
         "properties": {
             "id": {"type": "integer"},
+            "periode": {"type": "string"},
             "nature": {"type": "string", "enum": NATURES},
             "connues": {"type": "array", "items": {
                 "type": "object", "additionalProperties": False, "required": ["title", "holder"],
@@ -268,6 +282,7 @@ def _apply(queries: list[Query], answers: list[dict], by: str) -> int:
         q.known = [(k["title"].strip(), (k.get("holder") or "").strip()) for k in a.get("connues") or []
                    if isinstance(k, dict) and (k.get("title") or "").strip()][:3]
         q.nature = a.get("nature") or ""
+        q.period = (a.get("periode") or "").strip()[:40]
         q.visual = (a.get("visual") or "").strip()
         yt = (a.get("youtube") or "").strip()
         q.video = None if q.video_covered else (yt or (q.video if q.extract_note else None))
@@ -300,7 +315,8 @@ def _plan(provider: str, queries: list[Query], title: str, log, brief: str = "")
     if errors and not done:
         raise errors[0]
     if errors:
-        log(f"  {len(errors)} lot(s) sans réponse ({type(errors[0]).__name__}: {str(errors[0])[:100]})")
+        log(tr("  {n} lot(s) sans réponse ({error})", n=len(errors),
+               error=f"{type(errors[0]).__name__}: {str(errors[0])[:100]}"))
     return done
 
 
@@ -329,17 +345,19 @@ def llm_queries(queries: list[Query], mode: str, log=print, title: str = "",
         try:
             if engine == "ollama":
                 model = llm.ollama_available()
-                log(f"  requêtes : Ollama ({model})")
+                log(tr("  requêtes : Ollama ({model})", model=model))
                 n = _ollama(queries, model, title, brief)
                 return f"Ollama {model} ({n}/{len(queries)})", None
-            log(f"  requêtes : {llm.label(engine)}, {len(queries)} paragraphes…")
+            log(tr("  requêtes : {engine}, {n} paragraphes…", engine=llm.label(engine), n=len(queries)))
             n = _plan(engine, queries, title, log, brief)
-            log(f"  requêtes : {llm.label(engine)} ({n}/{len(queries)} paragraphes)")
+            log(tr("  requêtes : {engine} ({done}/{n} paragraphes)", engine=llm.label(engine), done=n,
+                   n=len(queries)))
             return llm.label(engine), engine if llm.ENGINES[engine]["vision"] else None
         except Exception as e:
-            log(f"  {llm.label(engine)} indisponible ({type(e).__name__}: {str(e)[:160]})")
+            log(tr("  {engine} indisponible ({error})", engine=llm.label(engine),
+                   error=f"{type(e).__name__}: {str(e)[:160]}"))
     if mode not in ("off", "auto") and not llm.available(mode):
-        log(f"  {llm.label(mode)} : pas connecté (page IA de la fenêtre)")
+        log(tr("  {engine} : pas connecté (page IA de la fenêtre)", engine=llm.label(mode)))
     return "heuristique", None
 
 
@@ -357,25 +375,34 @@ d'une autre époque, montage racoleur, mème, image floue ou minuscule, page de 
 Une vidéo est jugée sur sa miniature, son titre et sa chaîne : une archive, des actualités, un reportage, une \
 émission ou un discours sur le sujet sont bons ; un vlog, une réaction, une vidéo d'opinion face caméra ou sur \
 un autre sujet sont hors sujet.
+La date compte : chaque image vient avec sa date quand on la connaît, et le paragraphe avec la période dont il \
+parle. Une photo ou une vidéo d'un autre événement semblable (des manifestations d'une autre année, une \
+élection précédente) ne montre pas ce dont parle le texte : 0-3, même si elle y ressemble, sauf si le paragraphe \
+parle justement de cet événement-là. Sans date, cherche les indices (pancartes, slogans, personnalités, \
+téléphones, uniformes, qualité de l'image). Une carte, un portrait, un lieu ou un objet intemporels ne sont pas \
+concernés.
 Si le vidéaste donne des consignes, note aussi selon elles : une image qui ne les suit pas perd des points.
-why : quelques mots en français (ce que montre l'image, pourquoi elle convient ou non)."""
+why : quelques mots en français (ce que montre l'image, pourquoi elle convient ou non).
+date : l'année où la photo ou la vidéo a été prise si l'image, son titre ou ses indices la donnent clairement \
+(« 2019 »), sinon chaîne vide. N'invente pas."""
 
 _JUDGE_SCHEMA = {"type": "object", "additionalProperties": False, "required": ["verdicts"], "properties": {
     "verdicts": {"type": "array", "items": {
-        "type": "object", "additionalProperties": False, "required": ["n", "score", "why"],
+        "type": "object", "additionalProperties": False, "required": ["n", "score", "why", "date"],
         "properties": {"n": {"type": "integer"}, "score": {"type": "integer", "minimum": 0, "maximum": 10},
-                       "why": {"type": "string"}}}}}}
+                       "why": {"type": "string"}, "date": {"type": "string"}}}}}}
 
 JUDGE_POOL = 24         # images shown to the vision model per paragraph (plus the videos)
 JUDGE_MIN = 5           # below this, the candidate is dropped
 
 
 def judge(provider: str, q: Query, items: list[tuple[Asset, object]], title: str = "",
-          brief: str = "") -> dict[int, tuple[int, str]]:
-    """{index in items: (score 0-10, why)} for the items whose picture could be shown to the model."""
+          brief: str = "") -> dict[int, tuple[int, str, str]]:
+    """{index in items: (score 0-10, why, estimated year or "")} for the items whose picture could be shown."""
     from . import llm
     content = [(f"Consignes du vidéaste : {brief.strip()}\n" if brief.strip() else "") +
                f"Script : {title}\nSection : {q.section}\nParagraphe : {q.text}" +
+               (f"\nPériode dont parle le paragraphe : {q.period}" if q.period else "") +
                (f"\nImage idéale : {q.visual}" if q.visual else "")]
     shown = []
     for i, (a, im) in enumerate(items):
@@ -384,17 +411,20 @@ def judge(provider: str, q: Query, items: list[tuple[Asset, object]], title: str
         n = len(shown) + 1
         src = a.via + (f", {a.author}" if a.author else "")
         desc = (f"vidéo YouTube, {a.title} — chaîne {a.author or '?'}, {int(a.duration // 60)} min"
-                if a.kind == "video" else f"{a.title} — {src}")
+                if a.kind == "video" else f"{a.title} — {src}") + (f" — date : {a.date}" if a.date else "")
         content += [f"Image {n} : {desc[:240]}", llm.jpeg(im, 448)]
         shown.append(i)
     if not shown:
         return {}
-    answer = llm.ask(provider, JUDGE_INSTRUCTIONS, content, _JUDGE_SCHEMA, effort="low")
+    from ..i18n import localize_prompt
+    answer = llm.ask(provider, localize_prompt(JUDGE_INSTRUCTIONS), content, _JUDGE_SCHEMA, effort="low")
     out = {}
     for v in answer.get("verdicts", []):
         k = v.get("n", 0) - 1
         if 0 <= k < len(shown):
-            out[shown[k]] = (max(0, min(10, int(v.get("score", 0)))), (v.get("why") or "").strip()[:160])
+            year = re.search(r"(?<!\d)(1[0-9]{3}|20[0-9]{2})(?!\d)", v.get("date") or "")
+            out[shown[k]] = (max(0, min(10, int(v.get("score", 0)))), (v.get("why") or "").strip()[:160],
+                             year.group(1) if year else "")
     return out
 
 
@@ -405,7 +435,8 @@ def _strip(s: str) -> str:
 
 
 _II = {"prop": "imageinfo", "iiprop": "url|size|mime|extmetadata", "iiurlwidth": 480,
-       "iiextmetadatafilter": "LicenseShortName|LicenseUrl|Artist|Credit|ImageDescription|ObjectName"}
+       "iiextmetadatafilter": "LicenseShortName|LicenseUrl|Artist|Credit|ImageDescription|ObjectName|"
+                              "DateTimeOriginal"}
 
 
 def _commons_pages(data: dict, origin_note: str = "") -> list[tuple[Asset, str]]:
@@ -425,7 +456,8 @@ def _commons_pages(data: dict, origin_note: str = "") -> list[tuple[Asset, str]]
                   thumb=ii.get("thumburl", ""), source_page=ii.get("descriptionurl", ""), title=title[:120],
                   author=md.get("Artist", "")[:120], licence=lic, licence_url=md.get("LicenseUrl", ""),
                   credit=md.get("Credit", "")[:200], rights=rights_for(lic or None), width=ii.get("width", 0),
-                  height=ii.get("height", 0), note=" · ".join(x for x in (kind, origin_note) if x))
+                  height=ii.get("height", 0), note=" · ".join(x for x in (kind, origin_note) if x),
+                  date=norm_date(ii.get("extmetadata", {}).get("DateTimeOriginal", {}).get("value", "")))
         out.append((a, f"{title}. {md.get('ImageDescription', '')[:300]}"))
     return out
 
@@ -463,7 +495,7 @@ def search_wiki(ctx: Ctx, lang: str, text: str) -> str | None:
 
 def wiki_article(ctx: Ctx, lang: str, title: str) -> list[tuple[Asset, str, float]]:
     url = f"https://{lang}.wikipedia.org/wiki/{title.replace(' ', '_')}"
-    return [(replace(c.asset, origin="recherche", note=f"article : {title}"), c.text, 0.25 + c.prior)
+    return [(replace(c.asset, origin="recherche", note=tr("article : {title}", title=title)), c.text, 0.25 + c.prior)
             for c in wikipedia(ctx, url)]
 
 
@@ -483,7 +515,7 @@ def commons_depicts(ctx: Ctx, lang: str, title: str, n: int = 30) -> list[tuple[
     data = ctx.fetch.json("https://commons.wikimedia.org/w/api.php", {
         "action": "query", "format": "json", "formatversion": 2, "generator": "search",
         "gsrsearch": f"haswbstatement:P180={qid} filetype:bitmap|drawing", "gsrnamespace": 6, "gsrlimit": n, **_II})
-    return _commons_pages(data, f"représente : {title}")
+    return _commons_pages(data, tr("représente : {title}", title=title))
 
 
 def commons_category(ctx: Ctx, lang: str, title: str, n: int = 40) -> list[tuple[Asset, str]]:
@@ -499,7 +531,7 @@ def commons_category(ctx: Ctx, lang: str, title: str, n: int = 40) -> list[tuple
     data = ctx.fetch.json("https://commons.wikimedia.org/w/api.php", {
         "action": "query", "format": "json", "formatversion": 2, "generator": "categorymembers",
         "gcmtitle": f"Category:{cats[0]}", "gcmtype": "file", "gcmlimit": n, **_II})
-    return _commons_pages(data, f"catégorie Commons : {cats[0]}")
+    return _commons_pages(data, tr("catégorie Commons : {category}", category=cats[0]))
 
 
 def rumsey(ctx: Ctx, q: str, n: int = 12) -> list[tuple[Asset, str]]:
@@ -523,7 +555,7 @@ def rumsey(ctx: Ctx, q: str, n: int = 12) -> list[tuple[Asset, str]]:
                   licence="CC BY-NC-SA 3.0", licence_url="https://creativecommons.org/licenses/by-nc-sa/3.0/",
                   credit="David Rumsey Map Collection, David Rumsey Map Center, Stanford Libraries",
                   rights=CHECK, width=round(w * min(1, scale)), height=round(h * min(1, scale)),
-                  note="carte ancienne (usage commercial : à demander)")
+                  note=tr("carte ancienne (usage commercial : à demander)"), date=norm_date(date))
         out.append((a, f"{title}. {date}. {f.get('Type', '')}. {f.get('Note', '')[:200]}"))
     return out
 
@@ -552,7 +584,8 @@ def met(ctx: Ctx, q: str, n: int = 8) -> list[tuple[Asset, str]]:
                   source_page=o.get("objectURL", ""), title=(f"{title} ({date})" if date else title)[:120],
                   author=(o.get("artistDisplayName") or "")[:120], licence="CC0 (Met Open Access)",
                   licence_url="https://creativecommons.org/publicdomain/zero/1.0/",
-                  credit="The Metropolitan Museum of Art", rights=FREE)
+                  credit="The Metropolitan Museum of Art", rights=FREE,
+                  date=norm_date(date) or norm_date(o.get("objectBeginDate") or 0))
         out.append((a, f"{title}. {date}. {o.get('objectName', '')}. {o.get('medium', '')}"))
     return out
 
@@ -573,7 +606,7 @@ def europeana(ctx: Ctx, q: str, n: int = 10) -> list[tuple[Asset, str]]:
         a = Asset(id="", kind="image", via="europeana", origin="recherche", sentence=-1, paragraph=-1, url=full,
                   thumb=(it.get("edmPreview") or [full])[0], source_page=it.get("guid", ""), title=title[:120],
                   author=(creator or (it.get("dataProvider") or [""])[0])[:120], licence=lic, licence_url=lic,
-                  rights=rights_for(lic or None))
+                  rights=rights_for(lic or None), date=norm_date(it.get("year") or []))
         desc = " ".join((it.get("dcDescription") or [""])[:1])[:300]
         out.append((a, f"{title}. {desc}"))
     return out
@@ -598,7 +631,7 @@ def ddg_images(ctx: Ctx, q: str, n: int = 20) -> list[tuple[Asset, str]]:
             results = DDGS().images(q, region="wt-wt", safesearch="moderate", size="Large", max_results=n)
         except Exception as e:
             _ddg_state["off"] = True
-            ctx.errors.append({"url": "duckduckgo", "error": f"recherche DuckDuckGo arrêtée : {str(e)[:120]}"})
+            ctx.errors.append({"url": "duckduckgo", "error": tr("recherche DuckDuckGo arrêtée : {error}", error=str(e)[:120])})
             return []
         finally:
             _ddg_state["last"] = time.monotonic()
@@ -613,7 +646,8 @@ def ddg_images(ctx: Ctx, q: str, n: int = 20) -> list[tuple[Asset, str]]:
         a = Asset(id="", kind="image", via="web", origin="recherche", sentence=-1, paragraph=-1, url=r["image"],
                   thumb=r.get("thumbnail") or r["image"], source_page=page, title=title[:120],
                   author=r.get("source") or urlparse(page).netloc, rights=PROTECTED if stock else CHECK,
-                  width=w, height=h, note="banque d'images / agence" if stock else "licence inconnue (recherche web)")
+                  width=w, height=h, note=tr("banque d'images / agence") if stock else tr("licence inconnue (recherche web)"),
+                  date=url_date(r["image"]) or url_date(page))
         out.append((a, a.title))
     return out
 
@@ -635,7 +669,8 @@ def youtube(ctx: Ctx, q: str, n: int = 10) -> list[tuple[Asset, str]]:
         a = Asset(id="", kind="video", via="youtube", origin="recherche", sentence=-1, paragraph=-1,
                   url=f"https://www.youtube.com/watch?v={vid}", thumb=f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg",
                   source_page=f"https://www.youtube.com/watch?v={vid}", title=(e.get("title") or "")[:120],
-                  author=e.get("channel") or e.get("uploader") or "", rights=QUOTE, duration=duration)
+                  author=e.get("channel") or e.get("uploader") or "", rights=QUOTE, duration=duration,
+                  date=video_date(e))
         out.append((a, a.title))
     return out
 
@@ -770,7 +805,7 @@ def search_paragraph(ctx: Ctx, q: Query, keep: int, videos: bool, web: bool, cli
         try:
             matches = embed.image_match(look, [r[3] for r in pool])
         except Exception as e:
-            ctx.errors.append({"url": "clip", "error": f"classement par l'image impossible : {str(e)[:120]}"})
+            ctx.errors.append({"url": "clip", "error": tr("classement par l'image impossible : {error}", error=str(e)[:120])})
             matches = [float("nan")] * len(pool)
         for r, m in zip(pool, matches):
             if m == m:          # not nan
@@ -796,25 +831,25 @@ def search_paragraph(ctx: Ctx, q: Query, keep: int, videos: bool, web: bool, cli
             verdicts = judge(judge_with, q, items, title, brief)
             judged = bool(verdicts)
         except Exception as e:
-            ctx.errors.append({"url": f"tri par l'IA, paragraphe {q.paragraph}",
+            ctx.errors.append({"url": tr("tri par l'IA, paragraphe {n}", n=q.paragraph),
                                "error": f"{type(e).__name__}: {str(e)[:150]}"})
     if judged:
         n_img = len(images)
         kept = []
         for i, r in enumerate(images):
             if i in verdicts:
-                score, why = verdicts[i]
+                score, why, year = verdicts[i]
                 if score >= JUDGE_MIN:
                     r[0] = score + 0.3 * r[0]          # the verdict decides, the earlier score breaks ties
-                    r[2] = (score, why)
+                    r[2] = (score, why, year)
                     kept.append(r)
         ranked = sorted(kept, key=lambda x: -x[0])
         vkept = []
         for j, v in enumerate(vranked[:10]):
             if n_img + j in verdicts:
-                score, why = verdicts[n_img + j]
+                score, why, year = verdicts[n_img + j]
                 if score >= JUDGE_MIN:
-                    v[0], v[2] = score + 0.3 * v[0], (score, why)
+                    v[0], v[2] = score + 0.3 * v[0], (score, why, year)
                     vkept.append(v)
         vranked = sorted(vkept, key=lambda x: -x[0])
     else:
@@ -830,10 +865,14 @@ def search_paragraph(ctx: Ctx, q: Query, keep: int, videos: bool, web: bool, cli
         a.id = Asset.make_id(a.via, a.url, q.paragraph)
         bits = [a.note] if a.note else []
         if isinstance(m, tuple):
-            bits.append(f"IA : {m[0]}/10 — {m[1]}" if m[1] else f"IA : {m[0]}/10")
-        bits.append(f"requête ({q.by}) : " + ((q.video or "") if a.kind == "video" else asked))
+            bits.append(tr("IA : {score}/10 — {why}", score=m[0], why=m[1]) if m[1] else
+                        tr("IA : {score}/10", score=m[0]))
+            if m[2] and not a.date:
+                a.date = "~" + m[2]         # estimated by the AI from the picture
+        bits.append(tr("requête ({by}) : {query}", by=tr("heuristique") if q.by == "heuristique" else q.by,
+                       query=(q.video or "") if a.kind == "video" else asked))
         if isinstance(m, float):
-            bits.append(f"image ≈ texte : {m:.2f}")
+            bits.append(tr("image ≈ texte : {match}", match=f"{m:.2f}"))
         a.note = " · ".join(bits)
         out.append(a)
     return out

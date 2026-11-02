@@ -24,12 +24,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 
+from .i18n import tr
 from .sourcing import llm
 from .sourcing.export import slug
 from .sourcing.script import ScriptDoc, parse_script
 
 FACE, ARCHIVE = "face caméra", "archive"
-WORDS_PER_SECOND = 2.7       # spoken French, to estimate durations without a derush
+WORDS_PER_SECOND = {"fr": 2.7, "en": 2.5}   # speech rate, to estimate durations without a derush
 BATCH_SENTENCES = 45
 
 
@@ -139,6 +140,8 @@ def sentence_windows(derush: Path | None, edit: Path | None) -> dict[int, tuple[
 
 
 def script_lines(doc: ScriptDoc, where: dict[int, tuple[float, float]]) -> list[dict]:
+    from .text import detect_language
+    wps = WORDS_PER_SECOND[detect_language(" ".join(s.text for s in doc.sentences[:200]))]
     out = []
     for s in doc.sentences:
         if doc.sections[s.section].skip:
@@ -147,7 +150,7 @@ def script_lines(doc: ScriptDoc, where: dict[int, tuple[float, float]]) -> list[
             a, b = where[s.idx]
             d = max(0.5, b - a)
         else:
-            d = max(1.0, len(s.text.split()) / WORDS_PER_SECOND)
+            d = max(1.0, len(s.text.split()) / wps)
         out.append({"id": s.idx, "section": doc.sections[s.section].title, "text": s.text, "s": round(d, 1)})
     return out
 
@@ -177,25 +180,36 @@ def make_bible(engine: str, doc: ScriptDoc, lines: list[dict], brief: str, refs:
                     content.append(llm.jpeg(im, 768))
             except Exception:
                 continue
-    bible = llm.ask(engine, STYLE_INSTRUCTIONS, content, STYLE_SCHEMA, effort="high")
+    from .i18n import localize_prompt
+    bible = llm.ask(engine, localize_prompt(STYLE_INSTRUCTIONS), content, STYLE_SCHEMA, effort="high")
     names = {t["name"].lower() for t in bible.get("techniques", [])}
-    for name, look, use in ((FACE, "le présentateur à l'image, sans illustration", "respirations, apartés"),
-                            (ARCHIVE, "image ou vidéo d'archive réelle (onglet Illustrations)",
-                             "personnes réelles, événements, documents")):
+    for name, look, use in ((FACE, tr("le présentateur à l'image, sans illustration"), tr("respirations, apartés")),
+                            (ARCHIVE, tr("image ou vidéo d'archive réelle (onglet Illustrations)"),
+                             tr("personnes réelles, événements, documents"))):
         if name not in names:
             bible.setdefault("techniques", []).append({"name": name, "look": look, "use_for": use})
     return bible
 
 
-def _bible_text(bible: dict) -> str:
-    t = [f"Style : {bible.get('summary', '')}",
-         "Palette : " + ", ".join(f"{c['name']} {c['hex']}" for c in bible.get("palette", [])),
-         f"Lumière : {bible.get('lighting', '')}", f"Matières : {bible.get('materials', '')}",
-         f"Caméra : {bible.get('camera', '')}", f"Typographie : {bible.get('typography', '')}",
-         f"Transitions : {bible.get('transitions', '')}",
-         "Motifs récurrents : " + " ; ".join(bible.get("motifs", [])),
-         "Techniques :"] + [f"- {x['name']} : {x['look']} — pour : {x['use_for']}" for x in bible.get("techniques", [])]
-    t += ["À éviter : " + " ; ".join(bible.get("avoid", [])), f"prompt_style : {bible.get('prompt_style', '')}"]
+def _colon() -> str:
+    """« : » after a label in the interface language (French puts a space before it)."""
+    from .i18n import ui_lang
+    return " :" if ui_lang() == "fr" else ":"
+
+
+def _bible_text(bible: dict, label=None) -> str:
+    """The bible as text: French labels for the AI prompts, `label=tr` for storyboard.md."""
+    L = label or (lambda s: s)
+    c = _colon() if label else " :"
+    t = [f"{L('Style')}{c} {bible.get('summary', '')}",
+         f"{L('Palette')}{c} " + ", ".join(f"{p['name']} {p['hex']}" for p in bible.get("palette", [])),
+         f"{L('Lumière')}{c} {bible.get('lighting', '')}", f"{L('Matières')}{c} {bible.get('materials', '')}",
+         f"{L('Caméra')}{c} {bible.get('camera', '')}", f"{L('Typographie')}{c} {bible.get('typography', '')}",
+         f"{L('Transitions')}{c} {bible.get('transitions', '')}",
+         f"{L('Motifs récurrents')}{c} " + " ; ".join(bible.get("motifs", [])),
+         f"{L('Techniques')}{c}"] + [f"- {x['name']}{c} {x['look']} — {L('pour')}{c} {x['use_for']}"
+                                     for x in bible.get("techniques", [])]
+    t += [f"{L('À éviter')}{c} " + " ; ".join(bible.get("avoid", [])), f"prompt_style{c} {bible.get('prompt_style', '')}"]
     return "\n".join(t)
 
 
@@ -257,7 +271,8 @@ def _ask_beats(engine: str, bible: dict, doc: ScriptDoc, lines: list[dict], part
                "Script entier :\n" + _script_payload(doc, lines),
                f"Passage à découper : phrases {part[0]['id']} à {part[-1]['id']} "
                f"({sum(x['s'] for x in part):.0f} s)." + (f"\n{extra}" if extra else "")]
-    answer = llm.ask(engine, BEATS_INSTRUCTIONS.replace("{pace}", f"{pace:g}"), content, BEATS_SCHEMA)
+    from .i18n import localize_prompt
+    answer = llm.ask(engine, localize_prompt(BEATS_INSTRUCTIONS.replace("{pace}", f"{pace:g}")), content, BEATS_SCHEMA)
     return _clean_beats(answer.get("beats", []), [x["id"] for x in part])
 
 
@@ -345,7 +360,7 @@ def render_card(b: dict, bible: dict, path: Path, size=(1920, 1080)) -> None:
         y += 62
     if b.get("motion"):
         y += 16
-        for line in textwrap.wrap("Mouvement : " + b["motion"], 84)[:2]:
+        for line in textwrap.wrap(tr("Mouvement") + _colon() + " " + b["motion"], 84)[:2]:
             d.text((x0, y), line, font=_font(36), fill=(150, 156, 168))
             y += 48
     quote = textwrap.wrap(f"« {b.get('text', '')} »", 110)
@@ -404,20 +419,20 @@ def load(out: Path) -> dict:
 def markdown(sb: dict) -> str:
     bible = sb["style"]["bible"]
     md = [f"# Storyboard — {sb['title']}", "", f"> {sb['style']['brief']}" if sb["style"]["brief"] else "", "",
-          "## Bible de style", "", _bible_text(bible), ""]
+          "## " + tr("Bible de style"), "", _bible_text(bible, tr), ""]
     last = None
     for b in sb["beats"]:
         if b["section"] != last:
-            md += [f"## {b['section'] or 'Début'}", ""]
+            md += [f"## {b['section'] or tr('Début')}", ""]
             last = b["section"]
         md += [f"### {b['id']} · {_tc(b['start'])} · {b['duration']:g} s · {b['technique']} — {b.get('title', '')}", "",
                f"*« {b['text']} »*", ""]
         for k, name in (("see", "On voit"), ("motion", "Mouvement"), ("notes", "Fabrication"), ("reuse", "Rappel")):
             if b.get(k):
-                md.append(f"- **{name}** : {b[k]}")
+                md.append(f"- **{tr(name)}**{_colon()} {b[k]}")
         for k, name in (("image_prompt", "Prompt image"), ("video_prompt", "Prompt vidéo")):
             if b.get(k):
-                md += ["", f"**{name}**", "", "```", b[k], "```"]
+                md += ["", f"**{tr(name)}**", "", "```", b[k], "```"]
         md.append("")
     return "\n".join(md)
 
@@ -434,31 +449,33 @@ def make(script: Path, brief: str = "", refs: list[Path] | None = None, pace: fl
     refs = [Path(p) for p in refs or [] if Path(p).is_file()]
     engines = [e for e in llm.candidates(engine_pref) if e != "ollama" or not refs]
     if not engines:
-        raise SystemExit("Aucune IA connectée : page IA de la fenêtre (Gemini, Claude, ChatGPT…).")
+        raise SystemExit(tr("Aucune IA connectée : page IA de la fenêtre (Gemini, Claude, ChatGPT…)."))
     engine = engines[0]
     where = sentence_windows(derush, edit)
     lines = script_lines(doc, where)
-    log(f"[1/4] {doc.title} : {len(lines)} phrases, durées "
-        + (f"du montage ({len(where)} phrases repérées)" if where else "estimées (pas de derush)")
+    log("[1/4] " + (tr("{title} : {n} phrases, durées du montage ({found} phrases repérées)",
+                       title=doc.title, n=len(lines), found=len(where)) if where else
+                    tr("{title} : {n} phrases, durées estimées (pas de derush)", title=doc.title, n=len(lines)))
         + f" · {llm.label(engine)}")
 
     previous = load(out) if (out / "storyboard.json").exists() else None
     same_brief = previous and previous["style"]["brief"] == brief and previous["script"] == str(script)
     if previous and (keep_style or same_brief) and previous["style"].get("bible"):
         bible = previous["style"]["bible"]
-        log("[2/4] bible de style : celle du storyboard précédent (même demande)")
+        log("[2/4] " + tr("bible de style : celle du storyboard précédent (même demande)"))
     else:
-        log("[2/4] bible de style…")
+        log("[2/4] " + tr("bible de style…"))
         bible = make_bible(engine, doc, lines, brief, refs)
         log(f"  {bible.get('summary', '')[:200]}")
-        log("  techniques : " + ", ".join(t["name"] for t in bible.get("techniques", [])))
+        log("  " + tr("techniques : {list}", list=", ".join(t["name"] for t in bible.get("techniques", []))))
 
     valid = {x["id"] for x in lines}
     locked = [b for b in (previous or {}).get("beats", []) if b.get("locked") and b["first"] in valid
               and b["last"] in valid] if same_brief else []
     locked_ids = {x["id"] for b in locked for x in lines if b["first"] <= x["id"] <= b["last"]}
     parts = _batches(lines, locked_ids)
-    log(f"[3/4] découpage en plans : {len(parts)} passage(s)" + (f", {len(locked)} plan(s) verrouillé(s) gardé(s)" if locked else ""))
+    log("[3/4] " + tr("découpage en plans : {n} passage(s)", n=len(parts))
+        + (tr(", {n} plan(s) verrouillé(s) gardé(s)", n=len(locked)) if locked else ""))
     beats = [dict(b) for b in locked]
     errors = []
 
@@ -477,20 +494,21 @@ def make(script: Path, brief: str = "", refs: list[Path] | None = None, pace: fl
             try:
                 got = f.result()
                 beats += got
-                log(f"  {i}/{len(parts)}  phrases {p[0]['id']}–{p[-1]['id']} : {len(got)} plans")
+                log(f"  {i}/{len(parts)}  " + tr("phrases {a}–{b} : {n} plans", a=p[0]['id'], b=p[-1]['id'], n=len(got)))
             except Exception as e:
                 errors.append(e)
-                log(f"  {i}/{len(parts)}  ÉCHEC phrases {p[0]['id']}–{p[-1]['id']} : {type(e).__name__} {str(e)[:160]}")
+                log(f"  {i}/{len(parts)}  " + tr("ÉCHEC phrases {a}–{b} : {error}", a=p[0]['id'], b=p[-1]['id'],
+                                                   error=f"{type(e).__name__} {str(e)[:160]}"))
                 beats += _clean_beats([], [x["id"] for x in p])
     if errors and len(errors) == len(parts):
-        raise SystemExit(f"L'IA n'a pas répondu : {errors[0]}")
+        raise SystemExit(tr("L'IA n'a pas répondu : {error}", error=errors[0]))
     beats = _finish(beats, lines, where)
 
     sb = {"title": doc.title, "script": str(script), "created": time.strftime("%Y-%m-%d %H:%M"),
           "engine": llm.label(engine), "pace": pace, "timing": "montage" if where else "estimé",
           "derush": str(derush or ""), "edit": str(edit or ""),
           "style": {"brief": brief, "refs": [str(p) for p in refs], "bible": bible}, "beats": beats}
-    log(f"[4/4] cartes et XML : {len(beats)} plans")
+    log("[4/4] " + tr("cartes et XML : {n} plans", n=len(beats)))
     write_outputs(out, sb, doc)
     techniques = {}
     for b in beats:
@@ -498,12 +516,13 @@ def make(script: Path, brief: str = "", refs: list[Path] | None = None, pace: fl
     log("  " + ", ".join(f"{n} {k}" for k, n in sorted(techniques.items(), key=lambda x: -x[1])))
     try:
         xml = place_xml(out, log=log)
-        log(f"  Premiere : {xml}")
+        log(f"  Premiere{_colon()} {xml}")
     except Exception as e:
-        log(f"  XML non écrit : {e}")
+        log("  " + tr("XML non écrit : {error}", error=e))
     usage = llm.usage_summary()
-    log(f"\n{len(beats)} plans, {time.time() - t0:.0f} s" + ("\nIA : " + usage.replace("\n", "\n     ") if usage else "")
-        + f"\nDossier : {out}")
+    log("\n" + tr("{n} plans, {s} s", n=len(beats), s=f"{time.time() - t0:.0f}")
+        + ("\n" + tr("IA") + _colon() + " " + usage.replace("\n", "\n     ") if usage else "")
+        + "\n" + tr("Dossier : {path}", path=out))
     return out
 
 
@@ -515,7 +534,7 @@ def place_xml(out: Path, derush: Path | None = None, edit: Path | None = None, l
     edit = edit or (Path(sb["edit"]) if sb.get("edit") else None)
     files = [(b["first"], out / b["card"]) for b in sb["beats"] if b.get("card") and (out / b["card"]).exists()]
     if not files:
-        raise ValueError("aucune carte (tous les plans sont « face caméra » ?)")
+        raise ValueError(tr("aucune carte (tous les plans sont « face caméra » ?)"))
     return place(out, files, derush if derush and derush.exists() else None,
                  edit if edit and edit.exists() else None, log=log, kind="Storyboard")
 
@@ -609,6 +628,17 @@ def serve(out: Path, engine_pref=lambda: "auto", open_browser: bool = True):
             self.end_headers()
             self.wfile.write(body)
 
+        def do_GET(self):
+            if self.path.split("?")[0] == "/i18n.js":
+                from .i18n import js
+                body = js().encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
+            return super().do_GET()
+
         def do_POST(self):
             data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0) or b"{}")
             try:
@@ -668,7 +698,7 @@ def main() -> None:
         write_result(place_xml(args.folder, args.derush, args.edit))
     else:
         serve(args.folder)
-        print("Storyboard ouvert (Ctrl+C pour arrêter)")
+        print(tr("Storyboard ouvert (Ctrl+C pour arrêter)"))
         try:
             while True:
                 time.sleep(1)

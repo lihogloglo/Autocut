@@ -12,6 +12,7 @@ import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from ..i18n import tr
 from .export import PREMIERE_IMAGE, layout, lanes
 from .model import Manifest
 from .place import seq_from_panel
@@ -33,14 +34,45 @@ def exported_files(out: Path) -> list[tuple[int, Path]]:
 KINDS = {"sources": "Illustrations", "storyboard": "Storyboard"}
 
 
+PANEL_PLACED = "placé par le panneau.json"
+
+
+def _sources_files(out: Path, log: list[str]) -> list[tuple[int, Path]]:
+    """The ticked illustrations already in médias/, minus those dragged into the edit by hand."""
+    from .library import selected_files
+    files, missing = selected_files(out, skip_dragged=True)
+    if missing:
+        log.append(tr("{n} élément(s) choisi(s) pas encore téléchargé(s) : « Télécharger la sélection » "
+                      "dans la planche", n=missing))
+    return [(a.sentence, p) for a, p in files]
+
+
+def ours(out: Path, kind: str) -> list[str]:
+    """Files the panel placed itself: replaced when it places again. Never what was dragged by hand."""
+    if kind != "sources":
+        return []
+    try:
+        placed = set(json.loads((out / PANEL_PLACED).read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        placed = set()
+    try:
+        dragged = {str((out / p).resolve()) for p in json.loads((out / "dragged.json").read_text(encoding="utf-8")).values()}
+    except (OSError, ValueError):
+        dragged = set()
+    return sorted(placed - dragged)
+
+
 def plan(out: Path, derush: Path | None, sequence: dict, kind: str = "sources") -> dict:
     log: list[str] = []
-    files = exported_files(out)
+    files = _sources_files(out, log) if kind == "sources" else exported_files(out)
     if not files:
-        raise ValueError("rien d'exporté : choisissez les illustrations dans la planche, puis « Exporter »"
-                         if kind == "sources" else "pas de storyboard : générez-le dans Autocut, onglet Storyboard")
+        raise ValueError(tr("rien à placer : cochez des illustrations dans la planche, puis « Télécharger la sélection »")
+                         if kind == "sources" else tr("pas de storyboard : générez-le dans Autocut, onglet Storyboard"))
     placed, ref, timed = layout(out, files, derush, seq_from_panel(sequence), log.append)
     title = Manifest.load(out / "manifest.json").title
+    if kind == "sources":       # remembered so that the next run (or « Retirer ») takes them off again
+        mine = set(ours(out, kind)) | {str(m.path.resolve()) for m, *_ in placed}
+        (out / PANEL_PLACED).write_text(json.dumps(sorted(mine), ensure_ascii=False, indent=1), encoding="utf-8")
     return {"ok": True, "timed": timed, "log": log, "export_dir": str((out / "export").resolve()),
             "bin": f"{KINDS.get(kind, 'Illustrations')} - {title}"[:80],
             "items": [{"path": str(m.path), "bin": m.path.parent.name, "start": round(start, 4),
@@ -70,17 +102,22 @@ class _Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if self.path.startswith("/i18n"):        # the Premiere panel's texts
+            from ..i18n import catalog, ui_lang
+            return self._json({"ok": True, "lang": ui_lang(), "dict": catalog(ui_lang())})
         if not self.path.startswith("/status"):
             return self._json({"ok": False}, 404)
         kind = self._kind()
         out, derush = self.current(kind)
         if not out or not (out / "manifest.json").exists():
-            return self._json({"ok": False, "error": "Dans Autocut, onglet Illustrations : déposez le script "
-                                                     "et collectez d'abord." if kind == "sources" else
-                                                     "Dans Autocut, onglet Storyboard : générez-le d'abord."})
+            return self._json({"ok": False, "error": tr("Dans Autocut, onglet Illustrations : déposez le script "
+                                                        "et collectez d'abord.") if kind == "sources" else
+                                                     tr("Dans Autocut, onglet Storyboard : générez-le d'abord.")})
+        files = _sources_files(out, []) if kind == "sources" else exported_files(out)
         return self._json({"ok": True, "title": Manifest.load(out / "manifest.json").title,
-                           "files": len(exported_files(out)), "derush": str(derush or ""),
-                           "export_dir": str((out / "export").resolve())})
+                           "files": len(files), "derush": str(derush or ""),
+                           "export_dir": str((out / "export").resolve()),
+                           "ours": ours(out, kind) if kind == "sources" else None})
 
     def do_POST(self):
         if not self.path.startswith("/plan"):
@@ -90,7 +127,7 @@ class _Handler(BaseHTTPRequestHandler):
             kind = self._kind()
             out, derush = self.current(kind)
             if not out:
-                raise ValueError("aucun script dans Autocut")
+                raise ValueError(tr("aucun script dans Autocut"))
             return self._json(plan(out, derush, data, kind))
         except Exception as e:
             return self._json({"ok": False, "error": str(e), "trace": traceback.format_exc(limit=4)})
@@ -131,7 +168,7 @@ def install_panel(log=print, force: bool = False) -> bool:
     import subprocess
     import zipfile
     if not UPIA.exists() or not PANEL.is_dir():
-        log("Panneau Premiere : Creative Cloud absent, rien à installer")
+        log(tr("Panneau Premiere : Creative Cloud absent, rien à installer"))
         return False
     files = sorted(f for f in PANEL.rglob("*") if f.is_file())
     digest = hashlib.sha1(b"".join(f.relative_to(PANEL).as_posix().encode() + f.read_bytes() for f in files)).hexdigest()
@@ -147,15 +184,15 @@ def install_panel(log=print, force: bool = False) -> bool:
             z.write(f, f.relative_to(PANEL).as_posix())
     if "Creative Cloud.exe" not in subprocess.run(
             ["tasklist", "/fi", "imagename eq Creative Cloud.exe"], capture_output=True, text=True).stdout:
-        log("Panneau Premiere : ouvrez l'application Creative Cloud, puis relancez (pas installé)")
+        log(tr("Panneau Premiere : ouvrez l'application Creative Cloud, puis relancez (pas installé)"))
         return False
-    log("Panneau Premiere : installation…")
+    log(tr("Panneau Premiere : installation…"))
     if listed:
         _upia("/remove", "Autocut")
     out = _upia("/install", str(ccx))
     if "Successful" not in out:
-        log("Panneau Premiere : échec de l'installation\n" + out.strip())
+        log(tr("Panneau Premiere : échec de l'installation") + "\n" + out.strip())
         return False
     stamp.write_text(digest)
-    log("Panneau Premiere installé (Premiere : Fenêtre > Extensions UXP > Autocut ; redémarrez Premiere s'il est ouvert)")
+    log(tr("Panneau Premiere installé (Premiere : Fenêtre > Extensions UXP > Autocut ; redémarrez Premiere s'il est ouvert)"))
     return True

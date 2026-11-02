@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import csv
 import io
 import json
 import re
-import shutil
 import unicodedata
 import xml.etree.ElementTree as ET
 from fractions import Fraction
@@ -15,6 +13,7 @@ from urllib.parse import unquote, urlparse
 
 from PIL import Image
 
+from ..i18n import tr
 from ..media import MediaInfo, ensure_ffmpeg, probe
 from ..xmeml import PPRO_TICKS, add_marker, el, file_element, rate, write_document
 from .fetch import Fetcher
@@ -111,15 +110,22 @@ def _codecs(path: Path) -> tuple[str, str]:
     return v, au
 
 
-def download_video(a: Asset, choice: dict, dst_stem: Path, full_max: float) -> Path:
-    """Best resolution and frame rate the site has (4K VP9/AV1 included), made Premiere-friendly."""
+def download_video(a: Asset, choice: dict, dst_stem: Path, full_max: float, progress=None) -> Path:
+    """Best resolution and frame rate the site has (4K VP9/AV1 included), made Premiere-friendly.
+    progress(fraction) is called while the streams download (video then audio: each goes 0 → 1)."""
     import subprocess
 
     import yt_dlp
     start = choice.get("start", a.start)
     end = choice.get("end", a.end)
     whole = choice.get("full") or start is None
-    opts = {"quiet": True, "no_warnings": True, "noplaylist": True,
+
+    def hook(d: dict) -> None:
+        total = d.get("total_bytes") or d.get("total_bytes_estimate")
+        if progress and d.get("status") == "downloading" and total:
+            progress(d.get("downloaded_bytes", 0) / total)
+
+    opts = {"quiet": True, "no_warnings": True, "noplaylist": True, "noprogress": True, "progress_hooks": [hook],
             "outtmpl": str(dst_stem) + ".%(ext)s",
             "format": "bv*+ba/b",
             # resolution first, then frame rate; at equal quality prefer H.264/AAC (no re-encode needed)
@@ -137,7 +143,7 @@ def download_video(a: Asset, choice: dict, dst_stem: Path, full_max: float) -> P
     found = sorted(dst_stem.parent.glob(dst_stem.name + ".*"), key=lambda p: p.stat().st_size, reverse=True)
     found = [p for p in found if p.suffix.lower() in (".mp4", ".mkv", ".webm", ".mov")]
     if not found:
-        raise RuntimeError("téléchargement vidéo vide")
+        raise RuntimeError(tr("téléchargement vidéo vide"))
     path = found[0]
     vcodec, acodec = _codecs(path)
     if path.suffix.lower() in (".mp4", ".mov") and vcodec in PREMIERE_VIDEO and acodec in ("aac", "pcm_s16le", ""):
@@ -177,7 +183,7 @@ def sentence_times(xml_path: Path) -> tuple[dict[int, float], Fraction, tuple[in
     root = ET.parse(xml_path).getroot()
     seqs = list(root.iter("sequence"))
     if not seqs:
-        raise ValueError(f"aucune séquence dans {xml_path.name}")
+        raise ValueError(tr("aucune séquence dans {file}", file=xml_path.name))
     seq = next((s for s in reversed(seqs) if (s.findtext("name") or "").lower().endswith("derush")), seqs[-1])
     tb = int(seq.findtext("rate/timebase") or 25)
     ntsc = (seq.findtext("rate/ntsc") or "").upper() == "TRUE"
@@ -326,71 +332,37 @@ def broll_sequence(name: str, placed: list[tuple[MediaInfo, float, float, float,
 
 def export(out: Path, derush_xml: Path | None = None, edit_xml: Path | None = None, edit_sequence: str | None = None,
            full_video_max: float = 600.0, log=print, model: str = "large-v3") -> Path:
-    """Download/copy the selection into export/, write the credits and the Premiere XML. Files already
-    exported are kept, so running it again only re-places them (e.g. on a newer edit)."""
+    """The Premiere XML of the selection at its sentences. What the planche has not downloaded yet is
+    downloaded now, into the same médias/ folder (nothing twice). Returns the XML."""
+    from .library import Library
     manifest = Manifest.load(out / "manifest.json")
     selection = load_selection(out)
     chosen = [a for a in manifest.assets if a.id in selection]
     if not chosen:
-        raise ValueError("rien de sélectionné : cliquez sur des vignettes dans la planche d'abord")
+        raise ValueError(tr("rien de sélectionné : cliquez sur des vignettes dans la planche d'abord"))
     ensure_ffmpeg()
-    fetch = Fetcher(out / "cache")
-    dest = out / "export"
-    dest.mkdir(exist_ok=True)
-    sections = {s["idx"]: s for s in manifest.sections}
-    sentences = {s["idx"]: s for s in manifest.sentences}
+    lib = Library(out)
     chosen.sort(key=lambda a: (a.sentence, -a.score))
-    log(f"Export de {len(chosen)} éléments vers {dest}")
+    log(tr("{n} éléments choisis, fichiers dans {dest}", n=len(chosen), dest=lib.root))
 
     files: list[tuple[Asset, Path]] = []
-    per_sentence: dict[int, int] = {}
     for i, a in enumerate(chosen, 1):
-        sec = sections[sentences[a.sentence]["section"]]
-        folder = dest / f"{sec['idx']:02d} {slug(sec['title'] or 'Début', 40)}"
-        folder.mkdir(exist_ok=True)
-        n = per_sentence[a.sentence] = per_sentence.get(a.sentence, 0) + 1
-        stem = folder / f"S{a.sentence + 1:03d}-{n:02d} {a.via} - {slug(a.title)}"
-        existing = [p for p in folder.glob(stem.name + ".*") if not p.name.endswith((".part", ".ytdl"))]
         try:
-            if existing:
-                path = existing[0]
-            elif a.file:
-                src = out / a.file
-                path = stem.with_suffix(src.suffix)
-                shutil.copy2(src, path)
-            elif a.kind == "video":
-                log(f"  [{i}/{len(chosen)}] vidéo : {a.title[:60]}")
-                path = download_video(a, selection.get(a.id) or {}, stem, full_video_max)
-            else:
-                path = download_image(fetch, a, stem)
+            choice = selection.get(a.id) or {}
+            if not lib.find(a, choice):
+                log(tr("  [{i}/{n}] téléchargement : {title}", i=i, n=len(chosen), title=a.title[:60]))
+            path = lib.get(a, choice)
             files.append((a, path))
-            log(f"  [{i}/{len(chosen)}] {path.relative_to(dest)}")
         except Exception as e:
-            log(f"  [{i}/{len(chosen)}] ÉCHEC {a.title[:50]} : {type(e).__name__} {str(e)[:120]}")
+            log(tr("  [{i}/{n}] ÉCHEC {title} : {error}", i=i, n=len(chosen), title=a.title[:50],
+                   error=f"{type(e).__name__} {str(e)[:120]}"))
+    lib.write_credits()
 
-    # Credits, grouped by section, ready to paste in a video description.
-    lines = [f"Sources — {manifest.title}", ""]
-    rows = []
-    last = None
-    for a, path in files:
-        sec = sections[sentences[a.sentence]["section"]]
-        if sec["idx"] != last:
-            lines += ["", f"== {sec['title'] or 'Début'} =="]
-            last = sec["idx"]
-        lines.append(f"- {credit_line(a)}")
-        rows.append([path.relative_to(dest).as_posix(), a.sentence + 1, a.kind, a.via, a.rights, a.title, a.author,
-                     a.licence, a.licence_url, a.source_page, a.url, a.credit, a.note])
-    (dest / "credits.txt").write_text("\n".join(lines).strip() + "\n", encoding="utf-8-sig")
-    with (dest / "credits.csv").open("w", newline="", encoding="utf-8-sig") as fh:
-        w = csv.writer(fh, delimiter=";")
-        w.writerow(["fichier", "phrase", "type", "source", "droits", "titre", "auteur", "licence", "url licence",
-                    "page", "url", "crédit", "note"])
-        w.writerows(rows)
-
-    xml_path = place(out, files, derush_xml, edit_xml, edit_sequence, log, model)
-    log(f"\nFichiers : {dest}\nCrédits : {dest / 'credits.txt'}\nPremiere : {xml_path}\n"
-        "Dans Premiere : Fichier > Importer le dossier « export » (un chutier par section) et le .xml.")
-    return dest
+    xml_path = place(out, files, derush_xml, edit_xml, edit_sequence, log, model, xml_dir=out)
+    log(tr("\nFichiers : {dest}\nCrédits : {credits}\nPremiere : {xml}\n"
+           "Dans Premiere : Fichier > Importer le .xml (les fichiers viennent avec).",
+           dest=lib.root, credits=lib.root / "credits.txt", xml=xml_path))
+    return xml_path
 
 
 def _tc(seconds: float, fps: Fraction) -> str:
@@ -425,10 +397,11 @@ def layout(out: Path, files: list[tuple[int, Path]], derush_xml: Path | None = N
         where = by_ear(listen, Path(manifest.script), ref.name, model=model, log=log)
     fps = ref.fps if ref else Fraction(25)
     if ref:
-        log(f"  séquence « {ref.name} » : {len(where)} phrases repérées"
-            + (f" (via le derush « {derush.name} »)" if derush and target else ""))
+        log(tr("  séquence « {name} » : {n} phrases repérées (via le derush « {derush} »)", name=ref.name,
+               n=len(where), derush=derush.name) if derush and target else
+            tr("  séquence « {name} » : {n} phrases repérées", name=ref.name, n=len(where)))
         if not where:
-            log("  aucune phrase repérée : la voix ne correspond pas au script ?")
+            log(tr("  aucune phrase repérée : la voix ne correspond pas au script ?"))
 
     placed, cursor, missing = [], 0.0, 0
     for sentence, path in files:
@@ -443,7 +416,7 @@ def layout(out: Path, files: list[tuple[int, Path]], derush_xml: Path | None = N
                 still, src = False, 0.0
                 length = min(m.duration, MAX_CLIP_SECONDS)
         except Exception as e:
-            log(f"  ignoré dans le XML : {path.name} ({e})")
+            log(tr("  ignoré dans le XML : {file} ({error})", file=path.name, error=e))
             continue
         if where:
             if sentence not in where:
@@ -462,8 +435,8 @@ def layout(out: Path, files: list[tuple[int, Path]], derush_xml: Path | None = N
         placed.append((m, start, src, length, still, label))
     placed.sort(key=lambda p: p[1])         # takes kept in the edit may be in another order than the script
     if missing:
-        log(f"  {missing} élément(s) dont la phrase n'est pas dans « {ref.name} » (coupée au montage ?) : "
-            "exportés mais pas placés")
+        log(tr("  {n} élément(s) dont la phrase n'est pas dans « {name} » (coupée au montage ?) : "
+               "exportés mais pas placés", n=missing, name=ref.name))
     return placed, ref, bool(where)
 
 
@@ -481,7 +454,8 @@ def lanes(placed: list[tuple[MediaInfo, float, float, float, bool, str]]) -> lis
 
 
 def place(out: Path, files: list[tuple[Asset | int, Path]], derush_xml: Path | None = None, edit_xml: Path | None = None,
-          edit_sequence: str | None = None, log=print, model: str = "large-v3", kind: str = "B-roll") -> Path:
+          edit_sequence: str | None = None, log=print, model: str = "large-v3", kind: str = "B-roll",
+          xml_dir: Path | None = None) -> Path:
     """Premiere XML of the exported files at their sentences: a B-roll-only sequence, and a copy of the
     edit (or of `3 derush`) with the B-roll on tracks above. Without timings, one after the other."""
     manifest = Manifest.load(out / "manifest.json")
@@ -495,7 +469,7 @@ def place(out: Path, files: list[tuple[Asset | int, Path]], derush_xml: Path | N
             markers.append((p[1], p[5]))
 
     name = manifest.title[:50]
-    xml_path = out / "export" / f"{slug(manifest.title, 60)} {kind}.xml"
+    xml_path = (xml_dir or out / "export") / f"{slug(manifest.title, 60)} {kind}.xml"
     shared: dict[Path, str] = {}
     seqs = [broll_sequence(f"{name} {kind}", placed, fps, size, markers, files=shared)]
     if ref and timed:
@@ -504,10 +478,12 @@ def place(out: Path, files: list[tuple[Asset | int, Path]], derush_xml: Path | N
     write_document(xml_path, seqs, f"{name} {kind}")
     if ref and timed and placed:
         first = min(p[1] for p in placed)
-        log(f"  « {name} {kind} » : les illustrations seules, aux timecodes de « {ref.name} ».\n"
-            f"     Pour les coller dans votre montage : tout sélectionner, copier, puis dans « {ref.name} »\n"
-            f"     tête de lecture à {_tc(first, fps)}, piste V2 ciblée, coller.\n"
-            f"  « {ref.name} + {kind} » : votre séquence avec les illustrations sur les pistes au-dessus.")
+        log(tr("  « {name} » : les illustrations seules, aux timecodes de « {ref} ».\n"
+               "     Pour les coller dans votre montage : tout sélectionner, copier, puis dans « {ref} »\n"
+               "     tête de lecture à {tc}, piste V2 ciblée, coller.\n"
+               "  « {copy} » : votre séquence avec les illustrations sur les pistes au-dessus.",
+               name=f"{name} {kind}", ref=ref.name, tc=_tc(first, fps), copy=f"{ref.name} + {kind}"))
     elif placed:
-        log(f"  « {name} {kind} » : les illustrations à la suite (pas de derush indiqué : pas de timecodes)")
+        log(tr("  « {name} » : les illustrations à la suite (pas de derush indiqué : pas de timecodes)",
+               name=f"{name} {kind}"))
     return xml_path

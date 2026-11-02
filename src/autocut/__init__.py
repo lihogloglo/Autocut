@@ -13,7 +13,7 @@ from .media import ensure_ffmpeg, probe, rms_envelope
 from .premiere_xml import PremiereSequence
 from .sync import sync
 from .takes import ADLIB, INCOMPLETE, TAKE, resolve_takes, split_pieces
-from .text import load_sentences
+from .text import load_sentences, script_language, set_language
 from .timeline import Clip, Options, build_clips, build_triage
 from .transcribe import SourceTranscript, Transcriber, Word, transcribe_ranges
 from .xmeml import sync_document
@@ -65,7 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="audio track to transcribe, 1-based (default: first with a .wav)")
     ap.add_argument("-o", "--out", type=Path, help="output folder (default: next to the sources)")
     ap.add_argument("--model", default="large-v3", help="faster-whisper model (large-v3, large-v3-turbo, ...)")
-    ap.add_argument("--language", default="fr")
+    ap.add_argument("--language", default="auto", help="spoken language: fr, en, or auto (the script's)")
     ap.add_argument("--device", default="auto", help="cuda, cpu or auto (GPU if an NVIDIA card is found)")
     ap.add_argument("--compute-type", default="auto")
     ap.add_argument("--max-pause", type=float, default=0.6, help="cut pauses longer than this inside takes (s)")
@@ -239,8 +239,10 @@ def run(args: argparse.Namespace) -> Path:
             print(f"  kept as it is (already derushed): 0:00:00 - {_tc(keep)}; "
                   f"derushing the {_tc(seq.duration - keep)} after")
 
+    args.language = script_language(script, args.language)
+    set_language(args.language)
     device, compute_type = _pick_device(args.device, args.compute_type)
-    print(f"[2/{steps}] transcribing ({args.model} on {device.upper()})")
+    print(f"[2/{steps}] transcribing ({args.model} on {device.upper()}, {args.language})")
     if device == "cpu":
         print("  no NVIDIA GPU found: running on the CPU, this can take several times the recording length")
     _seed_from_sequence_cache(Path(f"{stem}.transcript.json"), source_key, seq, args.model, args.language)
