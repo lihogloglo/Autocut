@@ -28,7 +28,8 @@ NO_SCREENSHOT = re.compile(r"(youtube\.com|youtu\.be|dailymotion\.com|vimeo\.com
 _WIKI_SKIP = re.compile(r"icon|logo|symbol|pictogram|picto|ambox|question.book|edit-|wiki(source|quote|media|data|"
                         r"tionary|books|news|versity|voyage|species)|commons-|padlock|crystal|nuvola|disambig|"
                         r"portal|flag_of|blank|arrow|loudspeaker|speaker|audio|\.(ogg|oga|wav|mp3|webm|ogv)$|"
-                        r"red_pog|location_dot|_dot\.svg|transparent|placeholder|signature", re.I)
+                        r"red_pog|location_dot|_dot\.svg|transparent|placeholder|signature|protection|shackle|info_simple|"
+                        r"semi-protect|lock-|_lock|stub|wiktionary|increase|decrease|steady", re.I)
 _IMG_SKIP = re.compile(r"logo|icon|avatar|sprite|pixel|tracking|favicon|badge|banner-pub|emoji|gravatar|"
                        r"spacer|blank\.|placeholder|\.svg(\?|$)|/ads?/|doubleclick|data:image", re.I)
 _WP_SIZE = re.compile(r"-\d{2,4}x\d{2,4}(?=\.(jpe?g|png|webp)$)", re.I)
@@ -153,15 +154,35 @@ def _best_src(img) -> str | None:
     return best or img.get("data-src") or img.get("data-lazy-src") or img.get("data-original") or img.get("src")
 
 
+_WIKI_THUMB = re.compile(r"https://(?:upload|thumb)\.wikimedia\.org/(wikipedia/[^/]+)/thumb/(\w/\w\w/[^/]+)/[^/?]+(?:\?.*)?$")
+_CLOUDINARY = re.compile(r"(/image/upload/)((?:[a-z]{1,2}_[^/,]+,?)+/)+")
+_SIZE_SEG = re.compile(r"/(?:\d{2,4}x\d{2,4}|w\d{2,4}|\d{2,4}w|resize/\d+x?\d*|fit-in/\d+x\d+|"
+                       r"(?:thumbs?|small|medium|thumbnail)s?)/", re.I)
+_SIZE_SUFFIX = re.compile(r"[-_.](?:\d{2,4}x\d{2,4}|w\d{3,4}|small|medium|thumb|thumbnail|scaled)(?=\.(?:jpe?g|png|webp)$)",
+                          re.I)
+_SIZE_PARAMS = re.compile(r"([?&])(w|width|h|height|resize|fit|quality|q|crop|size|dpr|im|imwidth|"
+                          r"auto|fm|format)=[^&]*", re.I)
+
+
 def _bigger(url: str) -> list[str]:
-    """Likely full-size variants of a resized image URL, best first."""
+    """Likely full-size variants of a resized image URL, best first (the URL itself last)."""
     out = []
-    if _WP_SIZE.search(url):
-        out.append(_WP_SIZE.sub("", url))
-    q = re.sub(r"([?&])(w|width|h|height|resize|fit|quality|q)=[^&]*", r"\1", url).rstrip("?&")
+    m = _WIKI_THUMB.search(url)
+    if m:                                      # Wikimedia thumbnail -> original file
+        out.append(f"https://upload.wikimedia.org/{m.group(1)}/{m.group(2)}")
+    if _CLOUDINARY.search(url):                # Cloudinary transformations (w_640,c_fill…)
+        out.append(_CLOUDINARY.sub(r"\1", url))
+    path, _, query = url.partition("?")
+    for pat in (_WP_SIZE, _SIZE_SUFFIX):       # WordPress "-1024x683", "-scaled", "_small"…
+        if pat.search(path):
+            out.append(pat.sub("", path) + (f"?{query}" if query else ""))
+    if not m and _SIZE_SEG.search(path):       # CDN size folders: /1200x675/, /w800/, /thumbs/
+        out.append(_SIZE_SEG.sub("/", path, count=1) + (f"?{query}" if query else ""))
+    q = _SIZE_PARAMS.sub(r"\1", url)           # imgix / Akamai / Next.js query parameters
+    q = re.sub(r"[?&]+$", "", re.sub(r"\?&+", "?", re.sub(r"&&+", "&", q)))
     if q != url:
         out.append(q)
-    return out + [url]
+    return list(dict.fromkeys(out + [url]))
 
 
 def html_page(ctx: Ctx, url: str, resp) -> tuple[list[Cand], list[str]]:
@@ -213,9 +234,10 @@ def html_page(ctx: Ctx, url: str, resp) -> tuple[list[Cand], list[str]]:
     for src, (caption, credit, prior) in list(found.items())[:20]:
         size, full = None, src
         for variant in _bigger(src):
-            size = image_size(ctx, variant)
-            if size:
-                full = variant
+            got = image_size(ctx, variant)
+            if got and (not size or got[0] * got[1] > size[0] * size[1]):
+                size, full = got, variant
+            if size and variant != src and max(size) >= 2000:
                 break
         if not size or max(size) < 500 or min(size) < 200:
             continue
@@ -391,14 +413,47 @@ def video(ctx: Ctx, url: str, query: str) -> list[Cand]:
         else:
             start, end = 0.0, ctx.seg_len
     licence = info.get("license") or ""
-    heights = [f.get("height") or 0 for f in info.get("formats") or []]
+    # the best video stream, not the default pick (which may be a pre-merged 360p)
+    best = max((f for f in info.get("formats") or [] if f.get("height") and f.get("vcodec") != "none"),
+               key=lambda f: (f["height"], f.get("fps") or 0), default={})
     a = Asset(id="", kind="video", via="video", origin="lien", sentence=-1, paragraph=-1,
               url=info.get("webpage_url") or url, thumb=info.get("thumbnail") or "", source_page=url,
               title=(info.get("title") or "")[:120], author=info.get("uploader") or info.get("channel") or "",
               licence=licence, rights=FREE if "creative commons" in licence.lower() else QUOTE,
-              width=info.get("width") or 0, height=info.get("height") or max(heights, default=0),
+              width=best.get("width") or info.get("width") or 0, height=best.get("height") or info.get("height") or 0,
               duration=duration, start=start, end=end)
     return [Cand(a, a.title, 0.6)]
+
+
+def better_uploads(ctx: Ctx, a: Asset, n: int = 6) -> list[Cand]:
+    """Other YouTube uploads of the same video in a higher resolution (TV excerpts get re-uploaded a lot):
+    same title meaning, same length within 8 %. The excerpt times are copied, to check by eye."""
+    import yt_dlp
+    if not a.title or not a.duration:
+        return []
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "extract_flat": True, "logger": _Quiet()}) as y:
+        res = y.extract_info(f"ytsearch{n}:{a.title}", download=False)
+    entries = [e for e in res.get("entries") or [] if e.get("id") and e.get("id") not in a.url
+               and abs(float(e.get("duration") or 0) - a.duration) <= 0.08 * a.duration + 2]
+    if not entries:
+        return []
+    sims = embed.similarity(a.title, [e.get("title") or "" for e in entries])
+    out = []
+    for e, sim in zip(entries, sims):
+        if sim < 0.75:
+            continue
+        try:
+            (c,) = video(ctx, f"https://www.youtube.com/watch?v={e['id']}", a.title)
+        except Exception:
+            continue
+        if c.asset.height <= a.height:
+            continue
+        b = c.asset
+        b.start, b.end = a.start, a.end
+        b.note = (f"autre mise en ligne, {b.height}p au lieu de {a.height}p : vérifier que c'est la même vidéo "
+                  f"et le point de départ")
+        out.append(Cand(b, a.title, 0.65))
+    return out[:2]
 
 
 class _Quiet:
@@ -426,12 +481,18 @@ def harvest(ctx: Ctx, url: str, cites: list[ScriptSentence], hinted_pages: set[i
         return cands
     if VIDEO_HOSTS.search(url):
         try:
-            return video(ctx, url, query)
+            cands = video(ctx, url, query)
         except Exception as e:
             if "reddit.com" not in host:
                 raise
             ctx.errors.append({"url": url, "error": f"vidéo inaccessible ({str(e)[:120]}) : capture seulement"})
             return []
+        if re.search(r"youtube\.com|youtu\.be", url) and cands and 0 < cands[0].asset.height < 1080:
+            try:
+                cands += better_uploads(ctx, cands[0].asset)
+            except Exception:
+                pass
+        return cands
     r = ctx.fetch.get(url)
     ctype = r.headers.get("content-type", "")
     if r.ok and ("pdf" in ctype or r.content[:5] == b"%PDF-"):

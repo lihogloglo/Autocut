@@ -10,6 +10,8 @@ const BRIDGE = "http://127.0.0.1:47820";
 const TICKS_PER_SECOND = 254016000000;
 
 const $ = (id) => document.getElementById(id);
+const kind = () => { const p = $("kind"); if (!p) return "sources"; if (p.value === "storyboard" || p.value === "sources") return p.value; return p.selectedIndex === 1 ? "storyboard" : "sources"; };
+const NAMES = { sources: "illustrations", storyboard: "cartes du storyboard" };
 const norm = (p) => (p || "").replace(/\\/g, "/").toLowerCase();
 
 function log(msg, cls) {
@@ -28,7 +30,7 @@ function setStatus(msg, cls) {
 async function bridge(path, body) {
   let r;
   try {
-    r = await fetch(BRIDGE + path, body ? { method: "POST", body: JSON.stringify(body),
+    r = await fetch(BRIDGE + path + "?kind=" + kind(), body ? { method: "POST", body: JSON.stringify(body),
                                              headers: { "Content-Type": "application/json" } } : {});
   } catch (e) {
     throw new Error("Autocut n'est pas ouvert (ou pas sur cette machine) : lancez-le, onglet Illustrations.");
@@ -165,12 +167,12 @@ async function place() {
 
   setStatus(`Lecture de « ${seq.name} »…`);
   const { info, ours, top } = await readSequence(seq, st.export_dir);
-  log(`${info.items.length} plans lus, ${info.markers.length} marqueurs, ${ours.length} illustrations déjà placées`);
+  log(`${info.items.length} plans lus, ${info.markers.length} marqueurs, ${ours.length} ${NAMES[kind()]} déjà placées`);
 
   setStatus("Calcul des emplacements…");
   const plan = await bridge("/plan", info);
   plan.log.forEach((l) => log(l.trim()));
-  if (!plan.items.length) throw new Error("aucune illustration à placer");
+  if (!plan.items.length) throw new Error("rien à placer");
   if (!plan.timed) log("pas de phrases repérées : illustrations à la suite", "err");
 
   setStatus("Import des fichiers…");
@@ -226,7 +228,7 @@ async function place() {
     });
   }
   const lanes = Math.max(...todo.map((it) => it.lane)) + 1;
-  setStatus(`✓ ${todo.length} illustrations sur V${baseV + 1}${lanes > 1 ? "–V" + (baseV + lanes) : ""}`, "ok");
+  setStatus(`✓ ${todo.length} ${NAMES[kind()]} sur V${baseV + 1}${lanes > 1 ? "–V" + (baseV + lanes) : ""}`, "ok");
 }
 
 async function remove() {
@@ -237,7 +239,7 @@ async function remove() {
   if (!seq) throw new Error("ouvrez la séquence du montage dans la timeline");
   const { ours } = await readSequence(seq, st.export_dir);
   removeOurs(project, seq, ours);
-  setStatus(`✓ ${ours.length} illustration(s) retirée(s)`, "ok");
+  setStatus(`✓ ${ours.length} ${NAMES[kind()]} retirée(s)`, "ok");
 }
 
 function button(id, job) {
@@ -264,6 +266,10 @@ async function refresh() {
 }
 
 button("place", place);
+$("kind").addEventListener("change", () => {
+  $("place").textContent = kind() === "storyboard" ? "Placer le storyboard" : "Placer les illustrations";
+  refresh();
+});
 button("remove", remove);
 refresh();
 document.addEventListener("uxpcommand", refresh);

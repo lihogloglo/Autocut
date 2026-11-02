@@ -19,14 +19,18 @@ _model = None
 _lock = threading.Lock()
 
 
+def _quiet_hub() -> None:
+    os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    import warnings
+    warnings.filterwarnings("ignore", module="huggingface_hub")
+
+
 def _get():
     global _model
     with _lock:
         if _model is None:
-            os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-            os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-            import warnings
-            warnings.filterwarnings("ignore", module="huggingface_hub")
+            _quiet_hub()
             from fastembed import TextEmbedding
             print("  loading the similarity model (downloaded the first time, ~220 MB)")
             _model = TextEmbedding(MODEL, cache_dir=str(CACHE))
@@ -59,3 +63,39 @@ def numbers(text: str) -> set[str]:
     text = re.sub(r"(?<=\d)[\s  ](?=\d{3}\b)", "", text)
     return {n.replace(",", ".") for n in re.findall(r"\d+(?:[.,]\d+)?", text)
             if len(n) > 1 or n not in "0123456789"}
+
+
+# --- What an image shows (CLIP, ~600 MB, downloaded once) -----------------------------------------
+# Text side is English only: queries come from the LLM's "visual" description of the paragraph.
+
+CLIP_TEXT, CLIP_VISION = "Qdrant/clip-ViT-B-32-text", "Qdrant/clip-ViT-B-32-vision"
+_clip: dict = {}
+_clip_lock = threading.Lock()
+
+
+def _clip_models():
+    with _clip_lock:
+        if not _clip:
+            _quiet_hub()
+            from fastembed import ImageEmbedding, TextEmbedding
+            print("  loading the image model (downloaded the first time, ~600 MB)")
+            _clip["text"] = TextEmbedding(CLIP_TEXT, cache_dir=str(CACHE))
+            _clip["vision"] = ImageEmbedding(CLIP_VISION, cache_dir=str(CACHE))
+        return _clip["text"], _clip["vision"]
+
+
+def image_match(query: str, images: list) -> np.ndarray:
+    """CLIP cosine similarity of an English description against PIL images (None -> nan).
+    Typical values: ~0.18 unrelated, ~0.25 on topic, 0.30+ a close match."""
+    out = np.full(len(images), np.nan)
+    keep = [i for i, im in enumerate(images) if im is not None]
+    if not keep or not query.strip():
+        return out
+    text, vision = _clip_models()
+    with _clip_lock:
+        t = np.array(list(text.embed([query[:300]])), dtype=np.float32)[0]
+        v = np.array(list(vision.embed([images[i] for i in keep], batch_size=16)), dtype=np.float32)
+    t /= max(np.linalg.norm(t), 1e-9)
+    v /= np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-9)
+    out[keep] = v @ t
+    return out

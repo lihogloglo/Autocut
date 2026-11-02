@@ -22,20 +22,20 @@ dependencies = [
     "playwright>=1.64.1",
     "pymupdf>=2.0",
     "python-docx>=1.2.0",
+    "pywebview>=6.2.1",
     "rapidfuzz>=3.14.6",
     "static-ffmpeg>=3.0",
-    "sv-ttk>=2.6.1",
-    "tkinterdnd2>=0.7.0",
     "yt-dlp>=2026.10.26",
 ]
 
 [project.scripts]
 autocut = "autocut:main"
 autocut-sources = "autocut.sourcing:main"
+autocut-storyboard = "autocut.storyboard:main"
 
 [project.gui-scripts]
 autocut-gui = "autocut.gui:main"
-autocut-sources-gui = "autocut.sourcing.gui:main"
+autocut-sources-gui = "autocut.gui:main_sources"
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]

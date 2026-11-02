@@ -15,6 +15,12 @@
 </head>
 <body>
   <sp-heading size="XS">Autocut</sp-heading>
+  <sp-picker id="kind" label="Quoi" size="s">
+    <sp-menu slot="options">
+      <sp-menu-item value="sources" selected>Illustrations</sp-menu-item>
+      <sp-menu-item value="storyboard">Storyboard</sp-menu-item>
+    </sp-menu>
+  </sp-picker>
   <div id="status">…</div>
   <div class="row">
     <sp-button id="place" variant="cta">Placer les illustrations</sp-button>

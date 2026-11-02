@@ -16,7 +16,12 @@ BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/141.0 Safari/537.36 Edg/141.0")
 # Wikimedia asks API clients for a descriptive agent.
 TOOL_UA = "Autocut/0.2 (B-roll sourcing for video essays; https://github.com/lihogloglo)"
-_TOOL_HOSTS = ("wikipedia.org", "wikimedia.org", "wikidata.org", "archive.org", "europeana.eu")
+_TOOL_HOSTS = ("wikipedia.org", "wikimedia.org", "wikidata.org", "archive.org", "europeana.eu",
+               "davidrumsey.com", "metmuseum.org")
+# Image CDNs serve small thumbnails quickly: no need to space those requests as much.
+_CDN_HOSTS = ("thumb.wikimedia.org", "upload.wikimedia.org", ".mm.bing.net", "europeana.eu", "i.ytimg.com",
+              "images.metmuseum.org", "media.davidrumsey.com")
+CDN_PARALLEL = 4   # downloads at once from one of those (other hosts: one at a time)
 
 
 @dataclass
@@ -59,7 +64,7 @@ class Fetcher:
 
     def _host(self, host: str) -> list:
         with self._hosts_lock:
-            return self._hosts.setdefault(host, [threading.Lock(), 0.0])
+            return self._hosts.setdefault(host, [threading.Lock(), 0.0, threading.Semaphore(CDN_PARALLEL)])
 
     def get(self, url: str, params: dict | None = None, *, cache: bool = True, max_bytes: int | None = None,
             headers: dict | None = None, timeout: float = 30) -> Response:
@@ -76,30 +81,44 @@ class Fetcher:
         if max_bytes:
             hdrs["Range"] = f"bytes=0-{max_bytes - 1}"
         slot = self._host(host)
+        cdn = host.endswith(_CDN_HOSTS)
         resp = None
+
+        def download() -> Response:
+            # httpx timeouts are per read: a server trickling bytes would never time out,
+            # and would hold this host's slot. Enforce a deadline on the whole download.
+            deadline = time.monotonic() + timeout * (4 if max_bytes is None else 1)
+            with self._client().stream("GET", full, headers=hdrs, timeout=min(timeout, 20)) as r:
+                chunks, size = [], 0
+                for chunk in r.iter_bytes():
+                    chunks.append(chunk)
+                    size += len(chunk)
+                    if (max_bytes and size >= max_bytes) or time.monotonic() > deadline:
+                        break
+                if time.monotonic() > deadline and not max_bytes:
+                    raise httpx.ReadTimeout(f"download took more than {timeout * 4:.0f} s")
+                data = b"".join(chunks)
+                return Response(r.status_code, str(r.url), dict(r.headers), data[:max_bytes] if max_bytes else data)
+
         for attempt in range(4):
-            with slot[0]:
-                wait = slot[1] + self.min_gap - time.monotonic()
-                if wait > 0:
-                    time.sleep(wait)
-                try:
-                    # httpx timeouts are per read: a server trickling bytes would never time out,
-                    # and would hold this host's slot. Enforce a deadline on the whole download.
-                    deadline = time.monotonic() + timeout * (4 if max_bytes is None else 1)
-                    with self._client().stream("GET", full, headers=hdrs, timeout=min(timeout, 20)) as r:
-                        chunks, size = [], 0
-                        for chunk in r.iter_bytes():
-                            chunks.append(chunk)
-                            size += len(chunk)
-                            if (max_bytes and size >= max_bytes) or time.monotonic() > deadline:
-                                break
-                        if time.monotonic() > deadline and not max_bytes:
-                            raise httpx.ReadTimeout(f"download took more than {timeout * 4:.0f} s")
-                        data = b"".join(chunks)
-                        resp = Response(r.status_code, str(r.url), dict(r.headers),
-                                        data[:max_bytes] if max_bytes else data)
-                finally:
-                    slot[1] = time.monotonic()
+            if cdn:
+                # image servers: requests still spaced out, but a few downloads at once
+                with slot[2]:
+                    with slot[0]:
+                        wait = slot[1] + 0.05 - time.monotonic()
+                        if wait > 0:
+                            time.sleep(wait)
+                        slot[1] = time.monotonic()
+                    resp = download()
+            else:
+                with slot[0]:
+                    wait = slot[1] + self.min_gap - time.monotonic()
+                    if wait > 0:
+                        time.sleep(wait)
+                    try:
+                        resp = download()
+                    finally:
+                        slot[1] = time.monotonic()
             if resp.status in (429, 503, 502, 504) and attempt < 3:
                 delay = resp.headers.get("retry-after", "")
                 time.sleep(min(float(delay), 30) if delay.isdigit() else 2 * 2 ** attempt)

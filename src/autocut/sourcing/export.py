@@ -25,6 +25,7 @@ PREMIERE_IMAGE = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".psd"}
 STILL_SECONDS = 5.0                  # images placed one after the other (no timings)
 MIN_STILL_SECONDS, MAX_STILL_SECONDS = 3.0, 12.0   # images placed on their sentence
 MAX_CLIP_SECONDS = 60.0
+MAX_SPAN_SECONDS = 60.0              # a storyboard card covers its whole beat (spans.json), up to this
 
 
 def slug(text: str, n: int = 50) -> str:
@@ -43,8 +44,8 @@ def load_selection(out: Path) -> dict[str, dict]:
 
 # --- Downloads ----------------------------------------------------------------------------------
 
-def _commons_render(fetch: Fetcher, a: Asset, width: int = 3840) -> str | None:
-    """Wikimedia renders SVG/TIFF/huge files to PNG/JPEG at the width we ask."""
+def _commons_render(fetch: Fetcher, a: Asset, width: int) -> str | None:
+    """Wikimedia renders SVG/DjVu/PDF files to PNG/JPEG at the width we ask."""
     p = urlparse(a.source_page)
     if "/wiki/" not in p.path:
         return None
@@ -57,39 +58,78 @@ def _commons_render(fetch: Fetcher, a: Asset, width: int = 3840) -> str | None:
     return ii.get("thumburl")
 
 
+# Premiere refuses stills over 16384 px a side (and slows down well before): only those are reduced.
+PREMIERE_MAX_SIDE = 16384
+
+
 def download_image(fetch: Fetcher, a: Asset, dst_stem: Path) -> Path:
+    """The original file, always: only formats Premiere can't read are rendered or converted."""
     url = a.url
     ext = Path(urlparse(url).path).suffix.lower()
-    if a.via in ("wikipedia", "commons") and (ext not in (".jpg", ".jpeg", ".png") or max(a.width, a.height) > 8000):
-        # SVG, TIFF, DjVu, PDF, WebP… or huge: let Wikimedia render a 3840 px JPEG/PNG
-        url = _commons_render(fetch, a) or url
-    r = fetch.get(url, cache=False, timeout=180)
+    if a.via in ("wikipedia", "commons") and ext in (".svg", ".djvu", ".pdf"):
+        # vector / document: let Wikimedia render it as large as it will
+        for width in (7680, 3840):
+            try:
+                url = _commons_render(fetch, a, width) or a.url
+                break
+            except Exception:
+                continue
+    r = fetch.get(url, cache=False, timeout=300)
     if not r.ok:
         raise RuntimeError(f"HTTP {r.status}")
     ctype = r.headers.get("content-type", "").split(";")[0]
     ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/tiff": ".tif"}.get(ctype)
-    if ext:
-        dst = dst_stem.with_suffix(ext)
-        dst.write_bytes(r.content)
-        return dst
-    with Image.open(io.BytesIO(r.content)) as im:       # webp, avif, gif, svg-less formats -> PNG
+    Image.MAX_IMAGE_PIXELS = None          # scans of maps and paintings are legitimately huge
+    with Image.open(io.BytesIO(r.content)) as im:
+        too_big = max(im.size) > PREMIERE_MAX_SIDE
+        if ext and not too_big:
+            dst = dst_stem.with_suffix(ext)
+            dst.write_bytes(r.content)
+            return dst
+        # webp, avif, gif… -> PNG (lossless); over Premiere's limit -> the largest size it accepts
+        im = im.convert("RGBA" if "A" in im.getbands() else "RGB")
+        if too_big:
+            im.thumbnail((PREMIERE_MAX_SIDE, PREMIERE_MAX_SIDE), Image.LANCZOS)
         dst = dst_stem.with_suffix(".png")
-        im.convert("RGBA" if "A" in im.getbands() else "RGB").save(dst)
+        im.save(dst)
     return dst
 
 
+# Visually lossless H.264: what Premiere reads natively, without VP9/AV1 decoding trouble.
+X264_HQ = ["-c:v", "libx264", "-preset", "slow", "-crf", "12", "-pix_fmt", "yuv420p",
+           "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart"]
+PREMIERE_VIDEO = {"h264", "hevc", "prores", "dnxhd", "mpeg2video"}
+
+
+def _codecs(path: Path) -> tuple[str, str]:
+    import subprocess
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name", "-of", "json",
+                          str(path)], capture_output=True, text=True).stdout
+    streams = json.loads(out or "{}").get("streams", [])
+    v = next((x["codec_name"] for x in streams if x.get("codec_type") == "video"), "")
+    au = next((x["codec_name"] for x in streams if x.get("codec_type") == "audio"), "")
+    return v, au
+
+
 def download_video(a: Asset, choice: dict, dst_stem: Path, full_max: float) -> Path:
+    """Best resolution and frame rate the site has (4K VP9/AV1 included), made Premiere-friendly."""
+    import subprocess
+
     import yt_dlp
     start = choice.get("start", a.start)
     end = choice.get("end", a.end)
     whole = choice.get("full") or start is None
     opts = {"quiet": True, "no_warnings": True, "noplaylist": True,
             "outtmpl": str(dst_stem) + ".%(ext)s",
-            "format": "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b",
-            "merge_output_format": "mp4"}
+            "format": "bv*+ba/b",
+            # resolution first, then frame rate; at equal quality prefer H.264/AAC (no re-encode needed)
+            "format_sort": ["res", "fps", "vcodec:h264", "acodec:aac", "br"],
+            "merge_output_format": "mp4/mkv"}
     if not whole:
         opts["download_ranges"] = yt_dlp.utils.download_range_func(None, [(float(start), float(end))])
+        # cutting off-keyframe re-encodes: do it at our quality, not ffmpeg's default CRF 23
         opts["force_keyframes_at_cuts"] = True
+        opts["external_downloader_args"] = {"ffmpeg_o": X264_HQ}
     elif a.duration and a.duration > full_max and not choice.get("full"):
         opts["download_ranges"] = yt_dlp.utils.download_range_func(None, [(0, full_max)])
     with yt_dlp.YoutubeDL(opts) as y:
@@ -98,7 +138,21 @@ def download_video(a: Asset, choice: dict, dst_stem: Path, full_max: float) -> P
     found = [p for p in found if p.suffix.lower() in (".mp4", ".mkv", ".webm", ".mov")]
     if not found:
         raise RuntimeError("téléchargement vidéo vide")
-    return found[0]
+    path = found[0]
+    vcodec, acodec = _codecs(path)
+    if path.suffix.lower() in (".mp4", ".mov") and vcodec in PREMIERE_VIDEO and acodec in ("aac", "pcm_s16le", ""):
+        return path
+    dst = dst_stem.parent / (dst_stem.name + ".premiere.mp4")
+    args = ["ffmpeg", "-y", "-v", "error", "-i", str(path)]
+    if vcodec in PREMIERE_VIDEO:
+        args += ["-c:v", "copy", "-c:a", "aac", "-b:a", "320k", "-movflags", "+faststart"]
+    else:
+        args += X264_HQ
+    subprocess.run(args + [str(dst)], check=True, capture_output=True)
+    path.unlink()
+    final = dst_stem.with_suffix(".mp4")
+    dst.replace(final)
+    return final
 
 
 # --- Credits ------------------------------------------------------------------------------------
@@ -271,7 +325,7 @@ def broll_sequence(name: str, placed: list[tuple[MediaInfo, float, float, float,
 # --- Main ---------------------------------------------------------------------------------------
 
 def export(out: Path, derush_xml: Path | None = None, edit_xml: Path | None = None, edit_sequence: str | None = None,
-           full_video_max: float = 600.0, log=print) -> Path:
+           full_video_max: float = 600.0, log=print, model: str = "large-v3") -> Path:
     """Download/copy the selection into export/, write the credits and the Premiere XML. Files already
     exported are kept, so running it again only re-places them (e.g. on a newer edit)."""
     manifest = Manifest.load(out / "manifest.json")
@@ -333,7 +387,7 @@ def export(out: Path, derush_xml: Path | None = None, edit_xml: Path | None = No
                     "page", "url", "crédit", "note"])
         w.writerows(rows)
 
-    xml_path = place(out, files, derush_xml, edit_xml, edit_sequence, log)
+    xml_path = place(out, files, derush_xml, edit_xml, edit_sequence, log, model)
     log(f"\nFichiers : {dest}\nCrédits : {dest / 'credits.txt'}\nPremiere : {xml_path}\n"
         "Dans Premiere : Fichier > Importer le dossier « export » (un chutier par section) et le .xml.")
     return dest
@@ -346,12 +400,16 @@ def _tc(seconds: float, fps: Fraction) -> str:
 
 
 def layout(out: Path, files: list[tuple[int, Path]], derush_xml: Path | None = None, target: Seq | None = None,
-           log=print) -> tuple[list[tuple[MediaInfo, float, float, float, bool, str]], Seq | None, bool]:
+           log=print, listen: Path | None = None, model: str = "large-v3") -> tuple[list[tuple[MediaInfo, float, float, float, bool, str]], Seq | None, bool]:
     """Where each exported file goes: (media, start, source in, length, is_still, label) sorted by start,
     in `target` (the edit) or else in the derush; one after the other without either. Also returns the
     sequence used and whether the files are at their sentences."""
     manifest = Manifest.load(out / "manifest.json")
     sentences = {s["idx"]: s for s in manifest.sentences}
+    try:        # file name -> last sentence it covers (storyboard beats span several sentences)
+        spans = json.loads((out / "spans.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        spans = {}
     derush = read_sequence(derush_xml, prefer="derush") if derush_xml else None
     ref = target or derush
     where: dict[int, tuple[float, float]] = {}
@@ -362,12 +420,15 @@ def layout(out: Path, files: list[tuple[int, Path]], derush_xml: Path | None = N
     elif derush_xml:                         # older part 1 XML: take info in the clip names
         times, *_ = sentence_times(derush_xml)
         where = {i: (t, t + STILL_SECONDS) for i, t in times.items()}
+    if not where and ref and listen:         # no Sxxx markers anywhere: find the sentences by ear
+        from ..locate import sentence_times as by_ear
+        where = by_ear(listen, Path(manifest.script), ref.name, model=model, log=log)
     fps = ref.fps if ref else Fraction(25)
     if ref:
         log(f"  séquence « {ref.name} » : {len(where)} phrases repérées"
             + (f" (via le derush « {derush.name} »)" if derush and target else ""))
         if not where:
-            log("  aucune phrase repérée : donnez le .autocut.xml de la partie 1 (marqueurs Sxxx)")
+            log("  aucune phrase repérée : la voix ne correspond pas au script ?")
 
     placed, cursor, missing = [], 0.0, 0
     for sentence, path in files:
@@ -389,7 +450,10 @@ def layout(out: Path, files: list[tuple[int, Path]], derush_xml: Path | None = N
                 missing += 1
                 continue
             start, end = where[sentence]
-            if still:      # the image lasts as long as its sentence is spoken
+            last = spans.get(path.name)
+            if still and last is not None and last in where and where[last][1] > start:
+                length = min(MAX_SPAN_SECONDS, max(MIN_STILL_SECONDS, where[last][1] - start))
+            elif still:    # the image lasts as long as its sentence is spoken
                 length = min(MAX_STILL_SECONDS, max(MIN_STILL_SECONDS, end - start))
         else:
             start = cursor
@@ -416,13 +480,14 @@ def lanes(placed: list[tuple[MediaInfo, float, float, float, bool, str]]) -> lis
     return out
 
 
-def place(out: Path, files: list[tuple[Asset, Path]], derush_xml: Path | None = None, edit_xml: Path | None = None,
-          edit_sequence: str | None = None, log=print) -> Path:
+def place(out: Path, files: list[tuple[Asset | int, Path]], derush_xml: Path | None = None, edit_xml: Path | None = None,
+          edit_sequence: str | None = None, log=print, model: str = "large-v3", kind: str = "B-roll") -> Path:
     """Premiere XML of the exported files at their sentences: a B-roll-only sequence, and a copy of the
     edit (or of `3 derush`) with the B-roll on tracks above. Without timings, one after the other."""
     manifest = Manifest.load(out / "manifest.json")
     target = read_sequence(edit_xml, edit_sequence, prefer="derush") if edit_xml else None
-    placed, ref, timed = layout(out, [(a.sentence, p) for a, p in files], derush_xml, target, log)
+    placed, ref, timed = layout(out, [(getattr(a, "sentence", a), p) for a, p in files], derush_xml, target, log,
+                                listen=edit_xml or derush_xml, model=model)
     fps, size = (ref.fps, ref.size) if ref else (Fraction(25), (1920, 1080))
     markers = []
     for p in placed:
@@ -430,19 +495,19 @@ def place(out: Path, files: list[tuple[Asset, Path]], derush_xml: Path | None = 
             markers.append((p[1], p[5]))
 
     name = manifest.title[:50]
-    xml_path = out / "export" / f"{slug(manifest.title, 60)} B-roll.xml"
+    xml_path = out / "export" / f"{slug(manifest.title, 60)} {kind}.xml"
     shared: dict[Path, str] = {}
-    seqs = [broll_sequence(f"{name} B-roll", placed, fps, size, markers, files=shared)]
+    seqs = [broll_sequence(f"{name} {kind}", placed, fps, size, markers, files=shared)]
     if ref and timed:
-        base = standalone_copy(ref, "edit-broll-sequence", f"{ref.name} + B-roll")
+        base = standalone_copy(ref, "edit-broll-sequence", f"{ref.name} + {kind}")
         seqs.append(broll_sequence("", placed, fps, size, [], base=base, files=shared, prefix="edit-broll"))
-    write_document(xml_path, seqs, f"{name} B-roll")
+    write_document(xml_path, seqs, f"{name} {kind}")
     if ref and timed and placed:
         first = min(p[1] for p in placed)
-        log(f"  « {name} B-roll » : les illustrations seules, aux timecodes de « {ref.name} ».\n"
+        log(f"  « {name} {kind} » : les illustrations seules, aux timecodes de « {ref.name} ».\n"
             f"     Pour les coller dans votre montage : tout sélectionner, copier, puis dans « {ref.name} »\n"
             f"     tête de lecture à {_tc(first, fps)}, piste V2 ciblée, coller.\n"
-            f"  « {ref.name} + B-roll » : votre séquence avec les illustrations sur les pistes au-dessus.")
+            f"  « {ref.name} + {kind} » : votre séquence avec les illustrations sur les pistes au-dessus.")
     elif placed:
-        log(f"  « {name} B-roll » : les illustrations à la suite (pas de derush indiqué : pas de timecodes)")
+        log(f"  « {name} {kind} » : les illustrations à la suite (pas de derush indiqué : pas de timecodes)")
     return xml_path

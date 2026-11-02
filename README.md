@@ -10,30 +10,45 @@ there is no NVIDIA card — much slower).
 
 | Step | In | Out | Alone? |
 |---|---|---|---|
-| Sync | rushes (camera + .wav) | `1 sync` sequence | yes: no script |
-| Derush | sync result, or a sequence you synced yourself (FCP7 XML) + script | `2 triage`, `3 derush` | yes: give the Premiere XML |
+| Sync | rushes (camera + .wav) | `.sync.xml`: `1 sync` sequence | yes: no script |
+| Derush | sync result, or any sequence exported from Premiere (raw or half derushed) + script | `.autocut.xml`: `2 triage`, `3 derush` | yes: give the Premiere XML |
 | Illustrations: collect + pick | script (.md with links) | contact sheet, files per section, credits | yes: no derush needed |
 | Illustrations: place | picks + `.autocut.xml` and/or your current edit (FCP7 XML) | B-roll at the sentence timecodes | re-run any time after re-editing |
 | Illustrations: place, from Premiere | picks + the sequence open in Premiere ([panel](#premiere-panel)) | B-roll straight into the sequence | one click after each re-edit, no XML |
+| Storyboard | script + a style in words (+ reference images) | a beat-by-beat storyboard: what to make, prompts, scenes; cards placed on the edit | yes: durations estimated without a derush |
 
 The link between steps is the `Sxxx` sentence number: part 1 writes it in a marker over
 every take, part 2 files every illustration under it.
 
 ## Window (for everyone)
 
-Double-click **`Autocut.bat`** once: it installs what it needs (uv, Python packages, ffmpeg if
-missing), puts an **Autocut** shortcut on the desktop and opens the window (one tab per step).
-Afterwards, use the shortcut. The transcription model downloads on the first run (~3 GB).
+Double-click **`Autocut.bat`** once: it installs uv and the Python packages, puts an
+**Autocut** shortcut (🪓) on the desktop and opens the window. Afterwards, use the shortcut; run
+the .bat again only after updating the code. The rest — ffmpeg, the transcription model (~3 GB),
+a browser for page captures, the Premiere panel — is checked and installed from the window's
+**Installation** page (bottom of the left column; it turns orange when something required is
+missing). The **IA** page (just above it) picks the AI engine every step uses — see [AI engines](#ai-engines).
 
-Files are dropped on the window (or picked with **Fichiers…**); each one goes where it belongs
-by its type. The next step's button is highlighted, with one line saying what it does;
-settings and the log are folded away (**▸ Réglages**, **▸ Détails**).
+The window has one page per step (left column) and the script, shared by all steps, at the
+bottom of that column. Drop files anywhere on the window: they go to the zone under the cursor,
+or to the page you are on (a script always goes to the script, rushes to Synchro, a sequence to
+Derush). Everything is remembered between sessions, and each step's result feeds the next.
+Steps run in the background: the window stays responsive, a progress bar shows the step, the
+percentage and the time left, and **Arrêter** stops the job at once.
 
-1. **Synchro & derush**: drop the rushes (camera videos + recorder .wav, or their folder — or
-   a sequence exported from Premiere) and the script, press **Lancer**. Without a script,
-   only the sync is made. When done, the illustrations tab picks up the `.autocut.xml` and
-   the script.
-2. **Illustrations**: see [B-roll sourcing](#b-roll-sourcing-part-2).
+1. **Synchro**: drop the rushes (camera videos + recorder .wav, or their folder), press
+   **Synchroniser**. With the script set and *Enchaîner* ticked, the derush follows.
+2. **Derush**: drop a sequence (the sync result, or anything exported from Premiere with
+   File › Export › Final Cut Pro XML). The page reads it at once and says what it found:
+   - raw: everything gets derushed;
+   - **half derushed** (short clips, then long untouched rushes — people cut from left to
+     right): it shows where you stopped and offers **Continuer** (keep everything before that
+     point exactly as you cut it, derush the rest; the time can be changed) or **Tout refaire**;
+   - how much audio still needs transcribing: transcripts are cached per rush file, so a
+     re-exported or half-derushed sequence over the same rushes does not get transcribed again.
+3. **Illustrations**: see [B-roll sourcing](#b-roll-sourcing-part-2). The output folder is shown
+   on the page (**Ouvrir**).
+4. **Storyboard**: see [Storyboard](#storyboard).
 
 To give it to someone: copy this folder without `.venv`, `research_notes` and
 `reports`.
@@ -60,7 +75,11 @@ uv run autocut "D:\Exports\Episode 12.xml" "D:\Scripts\episode 12.docx"
 
 The .wav track is transcribed as it plays in the sequence; the output cuts
 every track (video, camera audio, .wav) at the same points, so sync and your
-existing cuts are kept. `--audio-track N` picks another track to transcribe,
+existing cuts are kept.
+
+Half derushed by hand? `--keep-until auto` keeps the start of the sequence as you cut it
+(clip for clip, colours and links included, gaps closed) up to where the long uncut rushes
+begin, and derushes the rest; `--keep-until 3245.8` sets that point in sequence seconds. `--audio-track N` picks another track to transcribe,
 `--sequence "name"` another sequence in the XML. Speed changes and nested
 sequences are not supported.
 
@@ -70,9 +89,14 @@ Written next to the sources (`-o` for another folder):
 
 | File | What |
 |---|---|
+| `Episode 12.sync.xml` | Sync only (no script): the `1 sync` sequence. |
 | `Episode 12.autocut.xml` | **File → Import** in Premiere: a bin with three sequences, below. |
 | `Episode 12.autocut.txt` | Sync report, then per script sentence: how many takes, where, how many failed, and which sentences were never recorded. |
-| `Episode 12.transcript.json`, `.sync.json` | Caches; re-runs with other settings skip transcription and sync. |
+| `Episode 12.sync.json` | Sync cache: re-runs skip the sync. |
+
+Transcripts are cached per rush file (by name and size, so moving the rushes keeps them) in
+`%LOCALAPPDATA%\autocut\transcripts`, with the source ranges already heard: any sequence built
+from the same rushes reuses them and only never-heard parts get transcribed.
 
 | Sequence | What |
 |---|---|
@@ -130,29 +154,44 @@ Script: `.txt`, `.md` or `.docx`. Headings, links, URLs and `[1]` citations are 
 ## Options
 
 `--max-pause 0.6` · `--pad-in 0.12` · `--pad-out 0.25` · `--adlib-words 5` ·
-`--model large-v3` (or `large-v3-turbo`, faster) · `--drift-tolerance 0.005` · `-o <folder>`
+`--model large-v3` (or `large-v3-turbo`, faster) · `--drift-tolerance 0.005` · `--keep-until auto|<s>` · `-o <folder>`
 
 ## B-roll sourcing (part 2)
 
-In the **Illustrations** tab: drop the Markdown script (and the `.autocut.xml` / your edit), press
-**1. Collecter**, then **2. Choisir** (opens the contact sheet). Click the thumbnails to keep, then
-**Exporter la sélection**. After re-editing in Premiere, **3. Placer sur le montage**
-puts the same picks on the new edit (nothing is downloaded again).
+On the **Illustrations** page everything starts from the script: set it, press **1. Collecter**,
+then **2. Choisir** (opens the contact sheet), click the thumbnails to keep and
+**Exporter la sélection**. **3. Placer** needs one sequence (.xml): it is the derush result by
+default; drop your current edit instead after re-editing, and the same picks go onto it (nothing
+is downloaded again).
 
 For every `[text](url)` in the script:
 
 | Link | What comes back |
 |---|---|
 | Wikipedia | the article's images at full resolution, with author and licence from Commons (images of the `#section` first) |
-| Article | its images at the largest size offered (`og:image`, `srcset`, WordPress originals), caption and credit; agency credits (AFP, Reuters, Getty…) flagged |
+| Article | its images at the largest size offered (`og:image`, `srcset`, WordPress / Cloudinary / CDN originals, Wikimedia originals), caption and credit; agency credits (AFP, Reuters, Getty…) flagged |
 | PDF | the pages that match the sentence (and `(page 9)` / `[page 23](…)` hints) rendered as images, plus the figures inside |
-| Video (YouTube, Facebook…) | the excerpt: `t=` in the link, else the minute whose captions match the sentence, or the whole video when short |
+| Video (YouTube, Facebook…) | the excerpt: `t=` in the link, else the minute whose captions match the sentence, or the whole video when short. Below 1080p, other uploads of the same video in higher resolution are offered too |
 | Our World in Data, Archive.org | the chart (CC BY) / the item |
-| Any page | tall screenshots (3840 × 4800 by default, room to pan): top of page, the passage that supports the sentence (at ~40 % of the height), and the same passage highlighted |
+| Any page | tall lossless PNG screenshots (3840 × 8000 by default, up to 3840 × 16000; room to pan): top of page, the passage that supports the sentence (at ~40 % of the height), and the same passage highlighted |
 
-Then a search per paragraph (names, dates, keywords; or Ollama/Claude queries):
-Wikimedia Commons, Europeana, DuckDuckGo images (unknown rights), and YouTube for
-paragraphs with an `(extrait …)` note.
+Then a search per paragraph. Gemini or Claude reads the whole script and says, for each
+paragraph, what can be shown (the event, its place and date — not the country or the theme),
+the kind of picture wanted (map, portrait, photo, painting, document, filmed archive…), the
+famous pictures of it it knows (a painting, a well-known photo, a map, with where they are
+held), which Wikipedia articles cover it, catalogue queries, a YouTube query, and what the
+ideal picture looks like. Searched, in that order: the images of those articles, their Commons
+category and the Commons files tagged as depicting their subject (structured data, P180); the
+famous pictures by name; Wikimedia Commons, Europeana; the Met (public domain) for paintings,
+prints, portraits and photos; the David Rumsey Map Collection for maps; DuckDuckGo images
+(unknown rights; video thumbnails and Pinterest reposts dropped); and all of YouTube (search
+results only: a video is downloaded at export, if ticked). The candidates are ranked by what
+their picture shows (CLIP, local), then the same model looks at the best 24 pictures and the
+video thumbnails of each paragraph, scores them 0–10 and drops those under 5; its reason shows
+on the contact sheet. An optional brief (window: « Consignes pour la recherche »; `--brief`) steers
+both, e.g. « favour period documents: posters, front pages, engravings ». Without Gemini or Claude: Ollama writes the queries (no picture check),
+else names and dates from the text (much weaker). Library of Congress and Gallica answer API
+clients with a Cloudflare challenge, so they are reached through Commons and Europeana only.
 
 Rights badges: **libre** (public domain / CC, credit needed), **citation** (screenshot
 or excerpt), **à vérifier** (unknown, NC/ND), **protégé** (agency or stock site detected).
@@ -167,28 +206,40 @@ with two sequences:
 | `<title> B-roll` | the illustrations alone, each starting on its sentence, images lasting as long as the sentence (3–12 s); alternatives for one sentence stacked on V1, V2… To paste into your edit: select all, copy, put the playhead at the timecode the log gives, target V2, paste. |
 | `<sequence> + B-roll` | a copy of `3 derush` (or of your edit) with the illustrations on the tracks above: open it and keep editing. |
 
-Timings: give the part 1 `.autocut.xml` (its `Sxxx` markers say where each sentence is in
-the rushes). Give also your **current edit** (Premiere: File → Export → Final Cut Pro XML)
-and each sentence is found again wherever it is now — re-cut, reordered, another take
-kept — by matching the rush time under it. Sentences cut out of the edit are reported;
-their files are still exported. Without any XML, the illustrations go one after the other.
+Timings: each picture goes where its sentence is spoken in the sequence you give. In the
+derush `.autocut.xml` the `Sxxx` markers say it directly. In your **current edit** (Premiere:
+File → Export → Final Cut Pro XML) each sentence is found again wherever it is now — re-cut,
+reordered, another take kept — by matching the rush time under the derush markers; and when
+there is no derush at all (a sequence cut by hand), by listening to it: the voice is
+transcribed (cached per rush, usually instant) and aligned to the script. Sentences cut out of
+the edit are reported; their files are still exported. Without any XML, the illustrations go
+one after the other.
 
 ```
-uv run autocut-sources collect "episode 12.md" [--no-shots] [--no-search] [--no-web] [--llm off|ollama|claude] [--shot-height 2400]
+uv run autocut-sources collect "episode 12.md" [--no-shots] [--no-search] [--no-web] [--llm auto|gemini|claude-code|codex|antigravity|claude|ollama|off] [--quality best|fast] [--no-judge] [--brief "…"] [--shot-height 4000]
 uv run autocut-sources sheet "episode 12 - sources" [--derush "episode 12.autocut.xml"] [--edit "montage.xml"]
 uv run autocut-sources export "episode 12 - sources" [--derush …] [--edit "montage.xml" [--edit-sequence name]]
 ```
 
 Everything is cached in the output folder: re-running is fast and keeps the selection.
-Screenshots use the Edge installed with Windows. The similarity model (~220 MB) is
-downloaded on first use. Optional: `ollama serve` with any model for better queries
-(`AUTOCUT_OLLAMA_MODEL` to choose), or `ANTHROPIC_API_KEY` for Claude (paid, a few
-cents per script); `EUROPEANA_KEY` for your own free Europeana key.
+Screenshots use the Edge installed with Windows. The similarity model (~220 MB) and the
+image model (~600 MB) are downloaded on first use. Recommended: a Gemini key (window, or
+`GEMINI_API_KEY`; saved in `%APPDATA%\autocut\keys.json`; `AUTOCUT_GEMINI_MODEL` to change the
+model, default `gemini-3.8-flash`) or `ANTHROPIC_API_KEY` for Claude (`AUTOCUT_CLAUDE_MODEL`).
+"Auto" uses Gemini when a key is saved, else Claude. Otherwise `ollama serve` with any model
+(`AUTOCUT_OLLAMA_MODEL` to choose).
+`EUROPEANA_KEY` for your own free Europeana key.
+
+Exports are always the best the source has: original image files (only formats Premiere
+can't read are converted, losslessly; only images over 16384 px are reduced), videos at
+their highest resolution and frame rate (4K60 included), re-encoded to visually lossless
+H.264 only when needed (VP9/AV1 sources, or an excerpt cut between keyframes).
 
 ### Premiere panel
 
 Instead of exporting the edit as XML and importing a B-roll XML back, the **Autocut** panel
 works on the sequence open in Premiere (2025 v25.6 or later). **Placer les illustrations**
+(or **Placer le storyboard**, with **Quoi › Storyboard**: the storyboard cards, at their beats)
 reads the sequence, asks the Autocut window where each exported pick goes, imports the files
 (bin `Illustrations - <title>`, one sub-bin per section; files already there are reused) and
 puts them on the tracks above the edit, creating tracks when needed. Clicking it again after
@@ -196,7 +247,7 @@ re-editing first removes what it placed before (only files from the `export` fol
 edit is never touched). **Retirer** removes them. Undo works, in a few steps.
 
 The Autocut window must be open (the panel talks to it on `127.0.0.1:47820`), with the script
-in the Illustrations tab and the picks exported. Without the window:
+on the Illustrations page and the picks exported. Without the window:
 `uv run autocut-sources premiere "episode 12 - sources" [--derush "episode 12.autocut.xml"]`.
 
 Install (once, free):
@@ -205,6 +256,60 @@ Install (once, free):
 3. In UXP Developer Tools: **Add Plugin** → pick `premiere/manifest.json` → **Load**. The panel
    is in Premiere's Window menu (UXP plugins → Autocut). To keep it without the tool,
    **Package** it there and double-click the `.ccx`.
+
+## Storyboard
+
+Not searching, suggesting: what to *make* to illustrate the script, in a style described in words
+(« animations 3D lowpoly façon Blender, comme Fern et Lemmino, et motion design After Effects
+épuré pour les chiffres et les cartes »), optionally with reference images.
+
+1. **Style bible**: the AI turns the request into shared rules — palette (hex), light, materials,
+   camera, typography, transitions, recurring motifs, the techniques and what each is for, what to
+   avoid, and style keywords for image prompts. Names of creators become visual traits (image
+   generators don't know them). Every later request carries the bible, so the shots stay coherent.
+2. **Beats**: the script is cut into beats — one visual idea, consecutive sentences, ~6 s each
+   (setting), with the real durations from the derush or the edit when there is one, else
+   estimated from the text. Each beat: technique (or *face caméra*: keep the speaker; *archive*:
+   a real document is stronger, see Illustrations), title, what we see, camera and animation, an
+   image prompt and a video prompt (English), a structured scene (objects, environment, light,
+   camera, palette: for Blender or a Blender MCP agent later), production notes, reuse of other
+   beats' elements.
+3. **Output** (`<script> - storyboard`): `storyboard.json`, `storyboard.md`, a 1920×1080 card per
+   beat in `export/<section>/S014-01 B012 - <title>.png`, and `export/<title> Storyboard.xml`
+   (the cards alone at their beats, and a copy of the edit with the cards above). Each card lasts
+   its whole beat. In Premiere, the panel places the same cards in the open sequence (**Quoi ›
+   Storyboard**).
+
+The storyboard page (browser) shows the bible and every beat: edit any field (saved as you type,
+the card is redrawn), change the technique, **verrouiller** a beat, **Refaire** one beat (with an
+optional instruction: « plutôt une carte »), copy prompts and scenes, rewrite the XML. Running it
+again with the same style keeps the bible and the locked beats.
+
+```
+uv run autocut-storyboard make "episode 12.md" --style "…" [--ref frame.png] [--pace 6] [--derush "episode 12.autocut.xml"] [--edit montage.xml] [--llm auto|gemini|claude-code|codex|antigravity|claude] [--quality best|fast]
+uv run autocut-storyboard place "episode 12 - storyboard" [--edit montage.xml]
+uv run autocut-storyboard page "episode 12 - storyboard"
+```
+
+## AI engines
+
+Every step that needs an AI (illustration search, picture check, storyboard) uses the engine
+chosen on the **IA** page (*Auto*: the first connected one, in this order):
+
+| Engine | How | Notes |
+|---|---|---|
+| Gemini | API key pasted on the IA page (`%APPDATA%\autocut\keys.json`) | cheap; `AUTOCUT_GEMINI_MODEL` |
+| Claude | API key (`ANTHROPIC_API_KEY`) | `AUTOCUT_CLAUDE_MODEL` |
+| Claude subscription (Pro/Max) | the official Claude Code CLI, signed in | **Connecter** runs `claude auth login`; opus / sonnet |
+| ChatGPT subscription | the official Codex CLI, signed in with ChatGPT | **Connecter** runs `codex login`; the model is taken from Codex's own list for the account |
+| Gemini subscription (Google AI Pro/Ultra) | the official Antigravity CLI (`agy`), signed in | **Connecter** opens `agy` to sign in; Gemini models from `agy models` |
+| Ollama | local | queries only: it does not look at pictures |
+
+Subscriptions are used only by running the unmodified official CLIs with the user's own login,
+on their machine; Autocut never reads their tokens. Missing CLIs install from the page
+(**Installer**). **Tester** sends a tiny request with an image. **Qualité: Rapide** picks the
+cheaper model of each engine. Subscription calls are slower (a few seconds each) and count against
+the plan's usage limits.
 
 ## Tests
 

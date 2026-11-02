@@ -163,24 +163,93 @@ class PremiereSequence:
             lines.append(f"  skipped (no media file, e.g. adjustment layer - re-apply it on the derush): {name}")
         return "\n".join(lines)
 
-    def render_audio(self) -> np.ndarray:
-        """The analysis track as it plays in the sequence, 16 kHz mono."""
-        out = np.zeros(int(self.duration * SAMPLE_RATE) + SAMPLE_RATE, dtype=np.float32)
+    def offset(self, item: Item) -> float:
+        """Source seconds where the item starts."""
+        return item.ticks_in / PPRO_TICKS if item.ticks_in is not None else item.src_in / float(self.fps)
+
+    @staticmethod
+    def decode(path: Path, start: float, length: float) -> np.ndarray:
+        pcm = subprocess.run(
+            ["ffmpeg", "-v", "error", "-ss", f"{start:.6f}", "-t", f"{length:.6f}",
+             "-i", str(path), "-map", "0:a:0", "-ac", "1", "-ar", str(SAMPLE_RATE),
+             "-f", "f32le", "-"], capture_output=True, check=True).stdout
+        return np.frombuffer(pcm, dtype=np.float32)
+
+    def _spans(self, t0: float = 0.0):
+        """(item, sequence start s, sequence end s, source start s) of the analysis track from t0 on."""
         fps = float(self.fps)
         for item in self.analysis_track.items:
-            if not item.enabled:
-                continue
-            offset = item.ticks_in / PPRO_TICKS if item.ticks_in is not None else item.src_in / fps
-            length = (item.end - item.start) / fps
-            pcm = subprocess.run(
-                ["ffmpeg", "-v", "error", "-ss", f"{offset:.6f}", "-t", f"{length:.6f}",
-                 "-i", str(self.source(item)), "-map", "0:a:0", "-ac", "1", "-ar", str(SAMPLE_RATE),
-                 "-f", "f32le", "-"], capture_output=True, check=True).stdout
-            samples = np.frombuffer(pcm, dtype=np.float32)
-            at = int(item.start / fps * SAMPLE_RATE)
+            a, b = item.start / fps, item.end / fps
+            if item.enabled and b > t0:
+                yield item, a, b, self.offset(item)
+
+    def analysis_needs(self, t0: float = 0.0) -> dict[Path, list[tuple[float, float]]]:
+        """Source ranges heard on the analysis track from sequence time t0 on."""
+        needs: dict[Path, list[tuple[float, float]]] = {}
+        for item, a, b, off in self._spans(t0):
+            needs.setdefault(self.source(item), []).append((off + max(0.0, t0 - a), off + b - a))
+        return needs
+
+    def sequence_words(self, transcripts: dict, t0: float = 0.0) -> list:
+        """Words as they play in the sequence (from t0 on), from per-source transcripts."""
+        from .transcribe import Word
+        words = []
+        for item, a, b, off in self._spans(t0):
+            shift = a - off
+            for w in transcripts[self.source(item)].between(off + max(0.0, t0 - a), off + b - a):
+                words.append(Word(w.text, round(w.start + shift, 3), round(min(w.end + shift, b), 3), w.prob))
+        words.sort(key=lambda w: w.start)
+        return words
+
+    def render_audio(self, t0: float = 0.0) -> np.ndarray:
+        """The analysis track as it plays in the sequence, 16 kHz mono (silent before t0)."""
+        out = np.zeros(int(self.duration * SAMPLE_RATE) + SAMPLE_RATE, dtype=np.float32)
+        for item, a, b, off in self._spans(t0):
+            samples = self.decode(self.source(item), off, b - a)
+            at = int(a * SAMPLE_RATE)
             n = min(len(samples), len(out) - at)
             out[at:at + n] = samples[:n]
         return out
+
+    def islands(self, t1: float) -> list[tuple[float, float]]:
+        """Stretches of [0, t1] where the analysis track has sound: a hand derush leaves gaps where
+        takes were lifted out, and those are closed when the stretch is kept."""
+        fps, f1 = float(self.fps), round(t1 * float(self.fps))
+        spans = sorted((i.start, min(i.end, f1)) for i in self.analysis_track.items if i.start < f1)
+        out: list[list[int]] = []
+        for a, b in spans:
+            if out and a <= out[-1][1]:
+                out[-1][1] = max(out[-1][1], b)
+            else:
+                out.append([a, b])
+        return [(a / fps, b / fps) for a, b in out]
+
+    def derushed_until(self, long_clip: float = 60.0) -> dict:
+        """Where a hand derush stopped. People cut from left to right, so a half-derushed sequence
+        is short clips, then the long untouched rushes. "cutoff" (sequence s) is 0 when the whole
+        sequence looks raw and None when nothing does."""
+        fps = float(self.fps)
+        items = sorted((i for i in self.analysis_track.items if i.enabled), key=lambda i: i.start)
+        if not items:
+            return {"cutoff": None, "duration": 0.0, "clips": 0}
+        end = items[-1].end / fps
+        is_long = [(i.end - i.start) / fps >= long_clip for i in items]
+        cutoff = None
+        for k, item in enumerate(items):
+            if is_long[k]:
+                start = item.start / fps
+                raw = sum((i.end - i.start) / fps for i, lg in zip(items[k:], is_long[k:]) if lg)
+                if raw >= 0.8 * (end - start):
+                    cutoff = start if k else 0.0
+                    break
+        info = {"cutoff": cutoff, "duration": end, "clips": len(items)}
+        if cutoff is not None:
+            before = [i for i in items if i.start / fps < cutoff]
+            after = [i for i in items if i.start / fps >= cutoff]
+            info.update(done_clips=len(before), done=sum((i.end - i.start) / fps for i in before),
+                        raw_clips=len(after), raw=sum((i.end - i.start) / fps for i in after),
+                        raw_names=sorted({self.source(i).name for i in after}))
+        return info
 
     def export(self, path: Path, project: str, sequences: list[tuple[str, list[Clip] | None]]) -> None:
         """One XML holding several sequences over the same master clips. `None` instead of
@@ -233,6 +302,10 @@ class PremiereSequence:
         pos = 0
         prev: tuple[float, int] | None = None   # (src_out, end frame) of the previous clip
         for k, clip in enumerate(clips):
+            if clip.keep:
+                pos = self._keep(seq, clip, uid, k, new_tracks, clip_count, pos, written)
+                prev = None
+                continue
             fa = math.floor(clip.src_in * float(self.fps))
             if prev and abs(prev[0] - clip.src_in) < 1e-9:   # contiguous: no frame shown twice
                 fa = prev[1]
@@ -272,6 +345,64 @@ class PremiereSequence:
         if dur is not None:
             dur.text = str(pos)
         return seq
+
+    def _keep(self, seq: ET.Element, clip: Clip, uid: str, k: int, new_tracks: list[ET.Element],
+              clip_count: list[int], pos: int, written: set[str]) -> int:
+        """Copy a stretch of the sequence untouched: clip labels, links and sequence markers kept."""
+        fps = float(self.fps)
+        fa, fb = round(clip.src_in * fps), round(clip.src_out * fps)
+        tpf = PPRO_TICKS / fps
+        ids: dict[str, tuple[ET.Element, int, int]] = {}   # old clipitem id -> (copy, track, clip index)
+        copies: list[ET.Element] = []
+        for ti, (track, dest) in enumerate(zip(self.tracks, new_tracks)):
+            for item in track.items:
+                s, e = max(fa, item.start), min(fb, item.end)
+                if e <= s:
+                    continue
+                ci = copy.deepcopy(item.el)
+                old_id = ci.get("id")
+                ci.set("id", f"{uid}-keep-{k + 1}-{ti + 1}-{clip_count[ti] + 1}")
+                start, src_in = pos + s - fa, item.src_in + s - item.start
+                for tag, value in (("start", start), ("end", start + e - s), ("in", src_in), ("out", src_in + e - s)):
+                    ci.find(tag).text = str(value)
+                if item.ticks_in is not None:
+                    ticks = item.ticks_in + round((s - item.start) * tpf)
+                    ci.find("pproTicksIn").text = str(ticks)
+                    if ci.find("pproTicksOut") is not None:
+                        ci.find("pproTicksOut").text = str(ticks + round((e - s) * tpf))
+                self._normalize_file(ci, written)
+                dest.append(ci)
+                clip_count[ti] += 1
+                if old_id:
+                    ids[old_id] = (ci, ti, clip_count[ti])
+                copies.append(ci)
+        kind_index, counters = {}, {"video": 0, "audio": 0}
+        for ti, t in enumerate(self.tracks):
+            counters[t.kind] += 1
+            kind_index[ti] = counters[t.kind]
+        for ci in copies:
+            for ln in ci.findall("link"):
+                target = ids.get(ln.findtext("linkclipref"))
+                if target is None:
+                    ci.remove(ln)
+                    continue
+                other, ti, n = target
+                for tag, value in (("linkclipref", other.get("id")), ("trackindex", str(kind_index[ti])),
+                                   ("clipindex", str(n))):
+                    if ln.find(tag) is None:
+                        ET.SubElement(ln, tag)
+                    ln.find(tag).text = value
+        for m in self.seq.findall("marker"):
+            m_in = _int(m, "in", -1)
+            if fa <= m_in < fb:
+                mk = copy.deepcopy(m)
+                mk.find("in").text = str(pos + m_in - fa)
+                if mk.find("out") is not None and _int(mk, "out", -1) >= 0:
+                    mk.find("out").text = str(pos + _int(m, "out") - fa)
+                seq.append(mk)
+        for label, a, b in clip.markers:
+            add_marker(seq, label, pos + round(a * fps) - fa, pos + round(b * fps) - fa)
+        return pos + fb - fa
 
     def _normalize_file(self, ci: ET.Element, written: set[str]) -> None:
         """Full <file> definition on first use in the output, a bare reference after."""

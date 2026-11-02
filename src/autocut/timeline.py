@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -34,6 +34,8 @@ class Clip:
     color: str
     first_word: int
     last_word: int
+    keep: bool = False   # copy this stretch of the sequence as it is (already derushed by hand)
+    markers: list[tuple[str, float, float]] = field(default_factory=list)   # (label, in, out), sequence s
 
 
 def _spoken(p: Piece, words: list[Word]) -> str:

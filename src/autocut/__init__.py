@@ -14,8 +14,8 @@ from .premiere_xml import PremiereSequence
 from .sync import sync
 from .takes import ADLIB, INCOMPLETE, TAKE, resolve_takes, split_pieces
 from .text import load_sentences
-from .timeline import Options, build_clips, build_triage
-from .transcribe import load_or_transcribe
+from .timeline import Clip, Options, build_clips, build_triage
+from .transcribe import SourceTranscript, Transcriber, Word, transcribe_ranges
 from .xmeml import sync_document
 
 SCRIPT_EXT = {".md", ".txt", ".docx"}
@@ -75,6 +75,9 @@ def build_parser() -> argparse.ArgumentParser:
                     help="off-script speech with at least this many words is kept as ADLIB")
     ap.add_argument("--drift-tolerance", type=float, default=0.005,
                     help="sync: recorder files are re-aligned in segments so clock drift stays under this (s)")
+    ap.add_argument("--keep-until", default="0",
+                    help="XML input already derushed by hand up to this point: keep it as it is and derush "
+                         "the rest. Sequence seconds, or 'auto' to find where the short clips stop")
     return ap
 
 
@@ -82,7 +85,46 @@ def main() -> None:
     for stream in (sys.stdout, sys.stderr):   # Windows consoles/pipes default to cp1252: "→", "é" would crash
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
-    run(build_parser().parse_args())
+    out = run(build_parser().parse_args())
+    write_result(out)
+
+
+def write_result(path: Path) -> None:
+    """The window runs steps as subprocesses: it learns the output file from AUTOCUT_RESULT."""
+    import os
+    if os.environ.get("AUTOCUT_RESULT"):
+        Path(os.environ["AUTOCUT_RESULT"]).write_text(str(path), encoding="utf-8")
+
+
+def project_title(xml: Path) -> str:
+    """'Ep 12.sync.xml' / 'Ep 12.autocut.xml' -> 'Ep 12'."""
+    stem = xml.stem
+    for suffix in (".sync", ".autocut"):
+        if stem.lower().endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem
+
+
+def _seed_from_sequence_cache(cache: Path, source_key: dict, seq: PremiereSequence, model: str,
+                              language: str) -> None:
+    """Transcripts used to be cached per sequence: move a matching one into the per-rush cache."""
+    try:
+        data = json.loads(cache.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if data.get("key") != {**source_key, "model": model, "language": language}:
+        return
+    words = [Word(**w) for w in data["words"]]
+    by_source: dict[Path, SourceTranscript] = {}
+    for item, a, b, off in seq._spans():
+        src = seq.source(item)
+        st = by_source.setdefault(src, SourceTranscript(src, model, language))
+        inside = [Word(w.text, round(w.start - a + off, 3), round(w.end - a + off, 3), w.prob)
+                  for w in words if a <= (w.start + w.end) / 2 < b]
+        st.add(off, off + b - a, inside)
+    for st in by_source.values():
+        st.save()
+    print(f"  reused the transcript of {cache.name}")
 
 
 def _pick_device(device: str, compute_type: str) -> tuple[str, str]:
@@ -124,6 +166,20 @@ def classify(inputs: list[Path]) -> tuple[Path | None, Path | None, list[Path], 
     return script, xml, media, title
 
 
+def _after(clips: list[Clip], keep: float, islands: list[tuple[float, float]] | None = None) -> list[Clip]:
+    """The sequence up to `keep` as it is (gaps closed, markers for what was recognised in it), then
+    the clips after it."""
+    head = []
+    for a, b in islands if islands is not None else [(0.0, keep)]:
+        head.append(Clip(a, b, "", "", -1, -1, keep=True,
+                         markers=[(c.label, c.src_in, c.src_out) for c in clips
+                                  if c.label and a <= c.src_in < b and c.src_out <= keep]))
+    tail = [c for c in clips if c.src_out > keep]
+    for c in tail:
+        c.src_in = max(c.src_in, keep)
+    return [*head, *tail]
+
+
 def _stat_key(paths: list[Path]) -> list:
     return [[str(p), p.stat().st_size, p.stat().st_mtime] for p in paths if p.exists()]
 
@@ -135,7 +191,7 @@ def run(args: argparse.Namespace) -> Path:
     sync_lines: list[str] = []
     if xml:
         out = args.out or xml.parent
-        title = xml.stem
+        title = project_title(xml)
     else:
         infos = [probe(m) for m in media]
         main_file = next((m for m in infos if m.has_video), infos[0]).path
@@ -143,8 +199,8 @@ def run(args: argparse.Namespace) -> Path:
         title = title or main_file.stem
     out.mkdir(parents=True, exist_ok=True)
     stem = out / title
-    xml_out = Path(f"{stem}.autocut.xml")
-    report_out = Path(f"{stem}.autocut.txt")
+    xml_out = Path(f"{stem}.autocut.xml" if script else f"{stem}.sync.xml")
+    report_out = Path(f"{stem}.autocut.txt" if script else f"{stem}.sync.txt")
     steps = 5 if script else 2
 
     if xml:
@@ -162,7 +218,8 @@ def run(args: argparse.Namespace) -> Path:
         analysed = [[str(seq.source(i)), i.start, i.end, i.src_in, i.ticks_in] for i in seq.analysis_track.items]
         source_key = {"sync": hashlib.sha1(json.dumps([_stat_key(seq.sources()), analysed]).encode()).hexdigest()}
     print(seq.describe())
-    names = {"sync": f"{title} 1 sync", "triage": f"{title} 2 triage", "derush": f"{title} 3 derush"}
+    names = {"sync": seq.name if xml else f"{title} 1 sync", "triage": f"{title} 2 triage",
+             "derush": f"{title} 3 derush"}
 
     if not script:
         print(f"[2/{steps}] writing Premiere XML")
@@ -171,22 +228,27 @@ def run(args: argparse.Namespace) -> Path:
         print(f"\n{xml_out}   1 sequence: {names['sync']}  (no script given: sync only)")
         return xml_out
 
-    audio = None
-
-    def get_audio():
-        nonlocal audio
-        if audio is None:
-            print("  decoding audio")
-            audio = seq.render_audio()
-        return audio
+    keep = 0.0
+    if xml and args.keep_until != "0":
+        if args.keep_until == "auto":
+            keep = seq.derushed_until().get("cutoff") or 0.0
+        else:
+            keep = float(args.keep_until)
+        keep = min(round(keep * float(seq.fps)) / float(seq.fps), seq.duration)
+        if keep > 0:
+            print(f"  kept as it is (already derushed): 0:00:00 - {_tc(keep)}; "
+                  f"derushing the {_tc(seq.duration - keep)} after")
 
     device, compute_type = _pick_device(args.device, args.compute_type)
     print(f"[2/{steps}] transcribing ({args.model} on {device.upper()})")
     if device == "cpu":
         print("  no NVIDIA GPU found: running on the CPU, this can take several times the recording length")
-    words = load_or_transcribe(Path(f"{stem}.transcript.json"), source_key, get_audio,
-                               model_name=args.model, language=args.language,
-                               device=device, compute_type=compute_type)
+    _seed_from_sequence_cache(Path(f"{stem}.transcript.json"), source_key, seq, args.model, args.language)
+    transcriber = Transcriber(model_name=args.model, language=args.language, device=device,
+                              compute_type=compute_type)
+    # The kept part is transcribed too (once per rush, cached): its sentences get their Sxxx markers.
+    transcripts = transcribe_ranges(seq.analysis_needs(), seq.decode, transcriber)
+    words = seq.sequence_words(transcripts)
 
     print(f"[3/{steps}] aligning to script")
     sentences, tokens = load_sentences(script)
@@ -196,10 +258,15 @@ def run(args: argparse.Namespace) -> Path:
     pieces, results = resolve_takes(pieces, sentences, maps, words)
 
     print(f"[4/{steps}] cutting")
-    env = rms_envelope(get_audio())
+    print("  decoding audio")
+    env = rms_envelope(seq.render_audio(max(0.0, keep - 1.0)))
     opt = Options(max_pause=args.max_pause, pad_in=args.pad_in, pad_out=args.pad_out)
     derush = build_clips(pieces, {TAKE, INCOMPLETE, ADLIB}, words, sentences, env, seq.duration, opt)
     triage = build_triage(pieces, words, sentences, env, seq.duration, opt)
+    if keep > 0:
+        islands = seq.islands(keep)
+        derush, triage = _after(derush, keep, islands), _after(triage, keep, islands)
+        sync_lines += [f"Kept as it is (already derushed, {len(islands) - 1} gaps closed): 0:00:00 - {_tc(keep)}", ""]
 
     print(f"[5/{steps}] writing Premiere XML")
     seq.export(xml_out, title, [(names["sync"], None), (names["triage"], triage), (names["derush"], derush)])

@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autocut</title>
+<link rel="icon" href="autocut.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <span class="logo">🪓</span>
+      <span>Autocut</span>
+    </div>
+    <nav class="steps" id="steps">
+      <button class="step" data-step="sync"><span class="num">1</span><span class="txt"><b>Synchro</b><small></small></span></button>
+      <button class="step" data-step="derush"><span class="num">2</span><span class="txt"><b>Derush</b><small></small></span></button>
+      <button class="step" data-step="sources"><span class="num">3</span><span class="txt"><b>Illustrations</b><small></small></span></button>
+      <button class="step" data-step="storyboard"><span class="num">4</span><span class="txt"><b>Storyboard</b><small></small></span></button>
+    </nav>
+    <nav class="steps setup-nav">
+      <button class="step" data-step="ai"><span class="num gear">✦</span><span class="txt"><b>IA</b><small></small></span></button>
+      <button class="step" data-step="setup"><span class="num gear">⚙</span><span class="txt"><b>Installation</b><small>vérification…</small></span></button>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <!-- 1. Synchro -->
+    <section class="page" id="page-sync">
+      <header>
+        <h1>Synchro</h1>
+        <p class="lead">Cale les vidéos et le son externe (.wav) sur l'audio, comme PluralEyes. Donne une séquence « 1 sync » à importer dans Premiere.</p>
+      </header>
+      <div class="drop" data-zone="sync">
+        <div class="drop-icon"><svg viewBox="0 0 24 24"><path d="M12 3v12m0-12 4.5 4.5M12 3 7.5 7.5M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg></div>
+        <div class="drop-text"><b>Glissez vos rushs ici</b><span>vidéos, sons .wav, ou le dossier qui les contient</span></div>
+        <div class="drop-btns"><button class="btn" data-pick="sync">Fichiers…</button><button class="btn" data-pick="sync" data-folder="1">Dossier…</button></div>
+      </div>
+      <ul class="files" id="rushes"></ul>
+      <div class="row-opts">
+        <label class="check"><input type="checkbox" id="chain"><span>Enchaîner avec le derush quand le script est là</span></label>
+      </div>
+      <div class="actions">
+        <button class="btn primary big" id="go-sync">Synchroniser</button>
+      </div>
+      <div class="result" id="res-sync"></div>
+    </section>
+
+    <!-- 2. Derush -->
+    <section class="page" id="page-derush">
+      <header>
+        <h1>Derush</h1>
+        <p class="lead">Garde les prises du script, enlève silences et ratés. Marche sur une séquence brute ou déjà derushée en partie : vos coupes sont gardées.</p>
+      </header>
+      <div class="drop" data-zone="derush" id="drop-derush">
+        <div class="drop-icon"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7m9-3v6m0 0-3-3m3 3 3-3"/></svg></div>
+        <div class="drop-text"><b>Glissez une séquence Premiere (.xml)</b><span>Premiere : Fichier › Exporter › Final Cut Pro XML — ou le résultat de la synchro</span></div>
+        <div class="drop-btns"><button class="btn" data-pick="derush">Choisir…</button></div>
+      </div>
+      <div class="filecard" id="xml-card" data-zone="derush"></div>
+      <div class="script-slot" id="derush-script" data-zone="script"></div>
+      <div class="scan" id="scan"></div>
+      <details class="settings">
+        <summary>Réglages</summary>
+        <div class="grid">
+          <label>Transcription
+            <select data-opt="model">
+              <option value="large-v3">Précise (large-v3)</option>
+              <option value="large-v3-turbo">Rapide (large-v3-turbo)</option>
+            </select>
+          </label>
+          <label>Pause max. gardée (s)<input type="number" step="0.05" min="0" max="3" data-opt="max_pause"></label>
+          <label>Marge avant (s)<input type="number" step="0.01" min="0" max="2" data-opt="pad_in"></label>
+          <label>Marge après (s)<input type="number" step="0.01" min="0" max="2" data-opt="pad_out"></label>
+        </div>
+      </details>
+      <div class="actions">
+        <button class="btn primary big" id="go-derush">Derusher</button>
+      </div>
+      <div class="result" id="res-derush"></div>
+    </section>
+
+    <!-- 3. Illustrations -->
+    <section class="page" id="page-sources">
+      <header>
+        <h1>Illustrations</h1>
+        <p class="lead">Part du script : récupère les images de ses liens, vous choisissez sur une planche, puis elles sont placées au timecode de chaque phrase dans votre séquence.</p>
+      </header>
+      <div class="script-slot" id="src-script" data-zone="script"></div>
+      <div class="outdir" id="outdir"></div>
+      <div class="pipeline" id="pipeline">
+        <div class="pstep" id="p-collect"><div class="ptop"><span class="pnum">1</span><b>Collecter</b></div><p></p><button class="btn" data-run="collect">Collecter</button></div>
+        <div class="pstep" id="p-choose"><div class="ptop"><span class="pnum">2</span><b>Choisir</b></div><p></p><button class="btn" id="open-sheet">Ouvrir la planche</button></div>
+        <div class="pstep" id="p-place" data-zone="sources"><div class="ptop"><span class="pnum">3</span><b>Placer</b></div><p></p>
+          <div class="pslot" id="place-slot"></div>
+          <button class="btn" data-run="place">Placer les images</button></div>
+      </div>
+      <details class="settings">
+        <summary>Réglages de la collecte</summary>
+        <div class="grid">
+          <label class="check"><input type="checkbox" data-opt="shots"><span>Captures des pages</span></label>
+          <label class="check"><input type="checkbox" data-opt="search"><span>Archives et musées (Wikimedia, Europeana, Met, cartes David Rumsey)</span></label>
+          <label class="check"><input type="checkbox" data-opt="web"><span>Images du web (droits inconnus)</span></label>
+          <label class="check"><input type="checkbox" data-opt="videos"><span>YouTube (miniatures ; téléchargé seulement si coché sur la planche)</span></label>
+          <label class="check"><input type="checkbox" data-opt="judge"><span>L'IA regarde les images et écarte le hors-sujet</span></label>
+          <div class="wide muted ai-hint">IA utilisée : <b class="ai-current"></b> — <button class="link" data-act="go" data-arg="ai">changer</button></div>
+          <label class="wide">Consignes pour la recherche (facultatif)
+            <textarea data-opt="brief" rows="2" placeholder="Ex. : privilégier les documents d'époque (affiches, unes de journaux, gravures) ; pas de photos modernes ; cartes anciennes dès qu'on parle d'un territoire."></textarea>
+          </label>
+          <label>Hauteur des captures
+            <select data-opt="shot_height" data-num="1">
+              <option value="4000">Haute (3840 × 8000)</option>
+              <option value="6000">Très haute (3840 × 12000)</option>
+              <option value="8000">Extrême (3840 × 16000)</option>
+            </select>
+          </label>
+          <label>Extrait vidéo (s)<input type="number" min="5" max="300" step="5" data-opt="segment"></label>
+          <label>Vidéo entière si moins de (min)<input type="number" min="0" max="120" step="1" data-opt="full_max"></label>
+        </div>
+      </details>
+    </section>
+
+    <!-- 4. Storyboard -->
+    <section class="page" id="page-storyboard">
+      <header>
+        <h1>Storyboard</h1>
+        <p class="lead">Ce qu'il faudrait créer pour illustrer le script, plan par plan, dans le style que vous décrivez : ce qu'on voit, le mouvement, un prompt image et vidéo, la scène à construire. Des cartes à leur place dans Premiere vous montrent où va chaque plan.</p>
+      </header>
+      <div class="script-slot" id="sb-script" data-zone="script"></div>
+      <label class="stylebox">Le style voulu
+        <textarea data-opt="sb_style" rows="3" placeholder="Ex. : un mélange d'animations 3D lowpoly façon Blender, comme Fern et Lemmino, et de motion design After Effects épuré pour les chiffres et les cartes. Palette sombre, accents ambre."></textarea>
+      </label>
+      <div class="refs" data-zone="storyboard" id="sb-refs"></div>
+      <div class="sb-info" id="sb-info"></div>
+      <div class="actions">
+        <button class="btn primary big" data-run="storyboard" id="go-sb">Créer le storyboard</button>
+        <button class="btn big" id="open-sb">Ouvrir le storyboard</button>
+      </div>
+      <details class="settings">
+        <summary>Réglages</summary>
+        <div class="grid">
+          <label>Durée visée par plan (s)<input type="number" min="2" max="20" step="1" data-opt="sb_pace"></label>
+          <div class="wide muted ai-hint">IA utilisée : <b class="ai-current"></b> — <button class="link" data-act="go" data-arg="ai">changer</button></div>
+        </div>
+      </details>
+      <div class="result" id="res-sb"></div>
+    </section>
+
+    <!-- IA -->
+    <section class="page" id="page-ai">
+      <header>
+        <h1>IA</h1>
+        <p class="lead">L'IA qui lit le script pour toutes les étapes (recherche d'illustrations, tri des images, storyboard). Une clé API, ou votre abonnement : Autocut passe alors par l'application officielle, connectée à votre compte.</p>
+      </header>
+      <div class="ai-top">
+        <label>Moteur
+          <select data-opt="llm" id="ai-engine"></select>
+        </label>
+        <label>Qualité
+          <select data-opt="quality">
+            <option value="best">Meilleure (plus lent)</option>
+            <option value="fast">Rapide</option>
+          </select>
+        </label>
+      </div>
+      <ul class="checks" id="ai-list"><li class="muted">Vérification…</li></ul>
+      <div class="keyfield" id="gemini-keybox">
+        <label for="gemini-key">Clé API Gemini</label>
+        <div class="keyrow">
+          <input type="password" id="gemini-key" autocomplete="off" spellcheck="false" placeholder="Collez la clé (AIza…)">
+          <button class="btn" id="save-gemini">Enregistrer</button>
+        </div>
+        <small class="muted" id="gemini-status"></small>
+      </div>
+      <div class="actions"><button class="btn" id="ai-recheck">Revérifier</button></div>
+    </section>
+
+    <!-- Installation -->
+    <section class="page" id="page-setup">
+      <header>
+        <h1>Installation</h1>
+        <p class="lead">Ce dont Autocut a besoin sur cet ordinateur. Ce qui manque s'installe d'ici.</p>
+      </header>
+      <ul class="checks" id="checks"><li class="muted">Vérification…</li></ul>
+      <div class="actions"><button class="btn" id="recheck">Revérifier</button></div>
+    </section>
+
+    <!-- running job, shown under the page it belongs to -->
+    <div class="job" id="job" hidden>
+      <div class="job-head">
+        <div class="job-title"><span class="spinner"></span><b id="job-title"></b><span id="job-label" class="muted"></span></div>
+        <button class="btn danger" id="stop">Arrêter</button>
+      </div>
+      <div class="bar"><div id="bar-fill"></div></div>
+      <div class="job-meta"><span id="job-pct"></span><span id="job-eta" class="muted"></span></div>
+      <div class="job-msg" id="job-msg"></div>
+      <details class="log-wrap" id="log-wrap">
+        <summary>Détails <button class="link" id="copy-log">copier</button></summary>
+        <pre id="log"></pre>
+      </details>
+    </div>
+  </main>
+</div>
+<div class="veil" id="veil"><div>Déposez sur l'étape</div></div>
+<div class="toasts" id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>

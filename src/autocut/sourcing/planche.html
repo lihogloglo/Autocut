@@ -129,7 +129,8 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const RCLASS = {"libre": "libre", "citation": "citation", "à vérifier": "verif", "protégé": "protege"};
 const VIA = {wikipedia: "Wikipédia", page: "page", pdf: "PDF", owid: "OWID", archive: "Archive.org", video: "vidéo",
-             capture: "capture", commons: "Commons", europeana: "Europeana", web: "web", youtube: "YouTube"};
+             capture: "capture", commons: "Commons", europeana: "Europeana", web: "web", youtube: "YouTube",
+             rumsey: "David Rumsey", met: "Met"};
 let M, sel = {}, saveTimer;
 
 const fmt = t => { if (t == null || t === "") return ""; t = Math.max(0, Math.round(+t));

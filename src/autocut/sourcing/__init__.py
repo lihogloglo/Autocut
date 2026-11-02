@@ -50,8 +50,8 @@ def _page_hints(doc: ScriptDoc) -> tuple[dict[str, list], dict[str, set[int]]]:
 
 
 def collect(script: Path, out: Path | None = None, *, shots: bool = True, search: bool = True, web: bool = True,
-            videos: bool = True, llm: str = "auto", seg_len: float = 30, full_video_max: float = 600,
-            shot_height: int = 2400, log=print) -> Path:
+            videos: bool = True, llm: str = "auto", judge: bool = True, brief: str = "", seg_len: float = 30, full_video_max: float = 600,
+            shot_height: int = 4000, log=print) -> Path:
     """Harvest everything into <out>/manifest.json and write the contact sheet. Returns the output folder."""
     t0 = time.time()
     doc = parse_script(script)
@@ -107,11 +107,20 @@ def collect(script: Path, out: Path | None = None, *, shots: bool = True, search
         from .search import heuristic_queries, llm_queries, search_paragraph
         queries = heuristic_queries(doc)
         log(f"[3/{steps}] recherche pour {len(queries)} paragraphes")
-        used = llm_queries(queries, llm, log)
+        if brief.strip():
+            log(f"  consignes : {brief.strip()[:200]}")
+        used, provider = llm_queries(queries, llm, log, doc.title, brief)
         if used == "heuristique":
-            log("  requêtes : heuristiques (noms propres, dates, mots-clés)")
+            log("  requêtes : heuristiques (noms propres, dates) — pour chercher l'événement plutôt que "
+                "les mots, connectez une IA (page IA de la fenêtre)")
+        judge_with = provider if judge else None
+        if judge_with:
+            from .llm import label
+            log(f"  tri : {label(judge_with)} regarde les meilleures images de chaque paragraphe")
         with ThreadPoolExecutor(4) as ex:
-            futures = [ex.submit(search_paragraph, ctx, q, 10, videos, web) for q in queries]
+            futures = [ex.submit(search_paragraph, ctx, q, 10, videos, web, judge_with=judge_with, title=doc.title,
+                                 brief=brief)
+                       for q in queries]
             for i, f in enumerate(as_completed(futures), 1):
                 assets += f.result()
                 if i % 10 == 0 or i == len(queries):
@@ -141,6 +150,9 @@ def collect(script: Path, out: Path | None = None, *, shots: bool = True, search
     return out
 
 
+from .. import write_result  # noqa: E402
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="autocut-sources", description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -150,13 +162,19 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--no-shots", action="store_true", help="no page screenshots")
     c.add_argument("--no-search", action="store_true", help="cited links only")
     c.add_argument("--no-web", action="store_true", help="no DuckDuckGo image search (unknown licences)")
-    c.add_argument("--no-videos", action="store_true", help="no YouTube search for '(extrait …)' notes")
-    c.add_argument("--llm", default="auto", choices=["auto", "ollama", "claude", "off"],
-                   help="query generation: Ollama if running, else Claude if ANTHROPIC_API_KEY is set, else heuristic")
+    c.add_argument("--no-videos", action="store_true", help="no YouTube search")
+    c.add_argument("--llm", default="auto",
+                   choices=["auto", "gemini", "claude", "claude-code", "codex", "antigravity", "ollama", "off"],
+                   help="AI engine: auto = the first connected of Gemini (key), Claude (API), Claude Code, Codex, "
+                        "Antigravity, Ollama; off = names and dates only")
+    c.add_argument("--quality", default="best", choices=["best", "fast"], help="model tier of the AI engine")
+    c.add_argument("--brief", default="", help="instructions for the search, e.g. 'favour historical documents'")
+    c.add_argument("--no-judge", action="store_true",
+                   help="don't have Gemini/Claude look at the pictures to drop the off-topic ones")
     c.add_argument("--segment", type=float, default=30, help="video excerpt length (s)")
     c.add_argument("--full-video-max", type=float, default=600, help="download whole videos up to this length (s)")
-    c.add_argument("--shot-height", type=int, default=2400,
-                   help="page screenshot height in page pixels, 1920 wide (the image is twice that: 3840 x 4800)")
+    c.add_argument("--shot-height", type=int, default=4000,
+                   help="page screenshot height in page pixels, 1920 wide (the image is twice that: 3840 x 8000)")
     c.add_argument("--serve", action="store_true", help="open the contact sheet when done")
     s = sub.add_parser("sheet", help="open the contact sheet of an output folder")
     s.add_argument("folder", type=Path)
@@ -168,9 +186,12 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--edit", type=Path, help="current edit exported from Premiere (FCP7 XML): the B-roll follows "
                                              "the sentences wherever they are in it")
     e.add_argument("--edit-sequence", help="sequence of --edit to use (default: its only or last one)")
+    e.add_argument("--model", default="large-v3", help="whisper model, when the sentences must be found by ear")
     pr = sub.add_parser("premiere", help="serve the Premiere panel (premiere/ folder) for this output folder")
     pr.add_argument("folder", type=Path)
     pr.add_argument("--derush", type=Path, help="part 1 .autocut.xml")
+    ip = sub.add_parser("install-panel", help="install or update the Premiere panel (needs Creative Cloud)")
+    ip.add_argument("--force", action="store_true", help="reinstall even if this version is installed")
     return ap
 
 
@@ -191,13 +212,20 @@ def main() -> None:
             stream.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     args = build_parser().parse_args()
     if args.cmd == "collect":
+        from .llm import set_quality
+        set_quality(args.quality)
         out = collect(args.script, args.out, shots=not args.no_shots, search=not args.no_search,
-                      web=not args.no_web, videos=not args.no_videos, llm=args.llm, seg_len=args.segment,
+                      web=not args.no_web, videos=not args.no_videos, llm=args.llm, judge=not args.no_judge, brief=args.brief,
+                      seg_len=args.segment,
                       full_video_max=args.full_video_max, shot_height=args.shot_height)
+        write_result(out)
         if args.serve:
             _serve_forever(out, None)
     elif args.cmd == "sheet":
         _serve_forever(args.folder, args.derush, args.edit)
+    elif args.cmd == "install-panel":
+        from .bridge import install_panel
+        install_panel(force=args.force)
     elif args.cmd == "premiere":
         from .bridge import PORT, start
         if not start(lambda: (args.folder, args.derush)):
@@ -210,4 +238,4 @@ def main() -> None:
             pass
     else:
         from .export import export
-        export(args.folder, args.derush, args.edit, args.edit_sequence)
+        write_result(export(args.folder, args.derush, args.edit, args.edit_sequence, model=args.model))

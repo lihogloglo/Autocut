@@ -1,5 +1,8 @@
-"""Tall screenshots of cited pages (3840 px wide, taller than the screen so the edit can pan):
-top of page, the supporting passage, and the same passage highlighted.
+"""Tall screenshots of cited pages (3840 px wide, 8000 px tall by default, so the edit can pan):
+top of page, the supporting passage, and the same passage highlighted. Lossless PNG.
+
+The browser window itself is made as tall as the capture: screenshots "beyond the viewport" make
+Chromium lay out and paint the whole page, which takes a minute or more on a long Wikipedia article.
 
 Runs Playwright on the Edge that ships with Windows (no browser download). Playwright's sync API
 is bound to one thread, so all pages go through a single worker fed by a queue."""
@@ -165,36 +168,56 @@ def _passage(s: ScriptSentence, link: Link, blocks: list) -> tuple[int | None, f
     return best, best_score
 
 
-def _capture(page, path, idx: int | None, tall: int) -> None:
-    """`tall` page pixels from the top of the page, or around block `idx` (at ~40 % of the height)."""
-    view_h = page.viewport_size["height"]
-    _, _, doc_h = page.evaluate(RECT_JS, None)
-    if doc_h <= view_h + 40:          # nothing scrolls the window: inner scroller, or a short page
-        if idx is not None:
-            page.evaluate(INNER_SCROLL_JS, idx)
-            page.wait_for_timeout(700)
-        page.screenshot(path=path, type="jpeg", quality=88)
-        return
+def _frame(page, idx: int | None, tall: int) -> tuple[int, int]:
+    """Top and height of the capture: the top of the page, or block `idx` at ~40 % of the height."""
+    top, h, doc_h = page.evaluate(RECT_JS, idx)
     y = 0.0
     if idx is not None:
-        top, h, _ = page.evaluate(RECT_JS, idx)
         y = top - 120 if h > tall * 0.7 else top + h / 2 - tall * 0.4
     height = min(tall, doc_h)
-    y = int(max(0, min(y, doc_h - height)))
-    for at in range(y, y + height, view_h // 2):     # walk through the region so lazy images load
-        page.evaluate("y => window.scrollTo(0, y)", at)
-        page.wait_for_timeout(120)
+    return int(max(0, min(y, doc_h - height))), int(height)
+
+
+def _capture(page, path, idx: int | None, tall: int) -> None:
+    """`tall` page pixels from the top of the page, or around block `idx`. The window is `tall` high."""
+    _, _, doc_h = page.evaluate(RECT_JS, None)
+    width = page.viewport_size["width"]
+    if doc_h <= tall + 40:            # the whole page fits, or it scrolls inside an element
+        if idx is not None:
+            page.evaluate(INNER_SCROLL_JS, idx)
+        page.evaluate("() => window.scrollTo(0, 0)")
+        page.wait_for_timeout(700)
+        page.screenshot(path=path, type="png", clip={"x": 0, "y": 0, "width": width, "height": max(200, min(doc_h, tall))})
+        return
+    y, height = _frame(page, idx, tall)
+    for _ in range(3):
+        # images that load in view push the text down: measure again until the passage stays put
+        page.evaluate("y => window.scrollTo(0, y)", y)
+        page.wait_for_timeout(700)
+        y2, height = _frame(page, idx, tall)
+        if abs(y2 - y) < 16:
+            break
+        y = y2
     page.evaluate("y => window.scrollTo(0, y)", y)
-    page.wait_for_timeout(600)
-    page.screenshot(path=path, type="jpeg", quality=88, full_page=True,
-                    clip={"x": 0, "y": y, "width": page.viewport_size["width"], "height": height})
+    page.wait_for_timeout(150)
+    off = max(0, y - page.evaluate("() => window.scrollY"))   # in case the browser clamped the scroll
+    page.screenshot(path=path, type="png", clip={"x": 0, "y": off, "width": width, "height": min(height, tall - off)})
 
 
-def _shoot(ctx: Ctx, page, job: Job, log, tall: int = 2400) -> list[Asset]:
+class Unreachable(Exception):
+    """The page itself could not be opened (as opposed to a slow capture)."""
+
+
+def _shoot(ctx: Ctx, page, job: Job, log, tall: int = 4000) -> list[Asset]:
     key = Asset.make_id(job.url)
     folder = ctx.out / "captures"
     folder.mkdir(parents=True, exist_ok=True)
-    page.goto(job.url, wait_until="commit", timeout=45000)
+    try:
+        resp = page.goto(job.url, wait_until="commit", timeout=45000)
+    except Exception as e:
+        raise Unreachable(str(e)) from e
+    if resp is not None and resp.status in (401, 403, 429, 451, 503):
+        raise Unreachable(f"HTTP {resp.status}")
     for state, ms in (("domcontentloaded", 30000), ("load", 12000)):
         try:
             page.wait_for_load_state(state, timeout=ms)
@@ -202,6 +225,9 @@ def _shoot(ctx: Ctx, page, job: Job, log, tall: int = 2400) -> list[Asset]:
             pass
     page.wait_for_timeout(1500)
     _dismiss_consent(page)
+    # Lay the page out at the capture height once: every measurement below is in that layout.
+    page.set_viewport_size({"width": page.viewport_size["width"], "height": tall})
+    page.wait_for_timeout(500)
     page.evaluate(CLEAN_JS)
     page.wait_for_timeout(300)
     frag = unquote(urlparse(job.url).fragment) or None
@@ -218,7 +244,7 @@ def _shoot(ctx: Ctx, page, job: Job, log, tall: int = 2400) -> list[Asset]:
                      rights=QUOTE, width=w, height=h, note=note)
 
     out = []
-    top = folder / f"{key}_haut.jpg"
+    top = folder / f"{key}_haut.png"
     _capture(page, top, None, tall)
     first = job.cites[0][0]
     out.append(asset(top, first, "haut de page"))
@@ -229,8 +255,8 @@ def _shoot(ctx: Ctx, page, job: Job, log, tall: int = 2400) -> list[Asset]:
             continue
         note = "" if score >= 0.45 else "passage incertain : vérifier le surlignage"
         if idx not in done:
-            plain = folder / f"{key}_{idx}_passage.jpg"
-            mark = folder / f"{key}_{idx}_surligne.jpg"
+            plain = folder / f"{key}_{idx}_passage.png"
+            mark = folder / f"{key}_{idx}_surligne.png"
             _capture(page, plain, idx, tall)
             page.evaluate(MARK_JS, [idx, True])
             _capture(page, mark, idx, tall)
@@ -248,7 +274,7 @@ def _shoot(ctx: Ctx, page, job: Job, log, tall: int = 2400) -> list[Asset]:
 class ScreenshotWorker(threading.Thread):
     """Takes Jobs from a queue until None, collects assets in .assets."""
 
-    def __init__(self, ctx: Ctx, log=print, height: int = 2400):
+    def __init__(self, ctx: Ctx, log=print, height: int = 4000):
         super().__init__(daemon=True)
         self.ctx, self.log = ctx, log
         self.height = height          # capture height in page pixels (x2 in the image)
@@ -268,7 +294,7 @@ class ScreenshotWorker(threading.Thread):
                     browser = p.chromium.launch()
                 context = browser.new_context(viewport={"width": 1920, "height": 1080}, device_scale_factor=2,
                                               locale="fr-FR", accept_downloads=False)
-                failed: dict[str, int] = {}   # host -> failures: a site that blocks browsers blocks them all
+                failed: dict[str, int] = {}   # host -> pages it refused: a site that blocks browsers blocks them all
                 while (job := self.jobs.get()) is not None:
                     host = urlparse(job.url).netloc
                     if failed.get(host, 0) >= 2:
@@ -278,8 +304,10 @@ class ScreenshotWorker(threading.Thread):
                     page = context.new_page()
                     try:
                         self.assets += _shoot(self.ctx, page, job, self.log, self.height)
-                    except Exception as e:
+                    except Unreachable as e:
                         failed[host] = failed.get(host, 0) + 1
+                        self.ctx.errors.append({"url": job.url, "error": f"capture : page inaccessible {str(e)[:120]}"})
+                    except Exception as e:      # this page only (slow, odd layout): the site may be fine
                         self.ctx.errors.append({"url": job.url, "error": f"capture : {type(e).__name__} {str(e)[:120]}"})
                     finally:
                         page.close()
