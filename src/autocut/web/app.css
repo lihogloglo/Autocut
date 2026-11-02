@@ -73,7 +73,7 @@ main { overflow-y: auto; padding: 28px clamp(16px, 4vw, 48px) 40px; scroll-behav
 @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 17px; padding: 2px 8px; }
-.logo { font-size: 22px; line-height: 1; }
+.logo { width: 26px; height: 26px; display: block; }
 .setup-nav { margin-top: auto; border-top: 1px solid var(--border); padding-top: 12px; }
 .step .num.gear { font-size: 15px; }
 .step.needs .num { border-color: var(--warn); color: var(--warn); }

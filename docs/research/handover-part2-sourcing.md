@@ -21,13 +21,13 @@ My scripts are Markdown with inline sources: `[text](url)`. Today, for each pass
 → Goal: automate this pre-selection. For each paragraph/sentence of the script, gather candidate images and videos (from the cited links first, then searches), at the best available resolution, recording **source page, author/agency, licence, resolution** for every asset (copyright matters for YouTube: DMCA claims). The final output (folder per paragraph? HTML contact sheet? Premiere bin? markers on the derush sequence?) is to be discussed with me before you build it.
 
 ## Real test data
-- Script: `C:\Users\leogloglo\Desktop\Révolution\La révolte en France n'est pas que politique.md` (204 sentences, many links: snes.edu, Wikipedia FR/EN with URLs containing parentheses, etc.). Use it as the reference case.
+- Script: the author's own episode script (204 sentences, many links: snes.edu, Wikipedia FR/EN with URLs containing parentheses, etc.). Use it as the reference case.
 - The script also contains stage notes like `(extrait Bigard)`, `(page 9)`, `extrait` that hint at what to fetch (e.g. a TV clip): worth using.
 - `text.py` currently **throws the URLs away**. Part 2 needs a parser that keeps each link attached to its sentence/paragraph (reuse the splitting, don't duplicate it).
 
 ## Research already done (read it before searching again)
-- Full report: `reports/Video editing pipeline automation.md`
-- B-roll notes: `research_notes/Video editing pipeline automation/broll_sourcing.md`
+- Full report: `docs/research/report.md`
+- B-roll notes: `docs/research/notes/Video editing pipeline automation/broll_sourcing.md`
 
 Key findings:
 - **Nothing on the market follows the script's citation links**: an open gap. Closest blueprint: the **Sima 1.0** paper (arXiv 2604.07721, April 2026; Claude agents, no code released).
