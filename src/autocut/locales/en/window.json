@@ -224,5 +224,17 @@
  "{n} téléchargés": "{n} downloaded",
  "Cochez les vignettes à garder dans la planche et téléchargez-les — ou glissez-les directement dans Premiere.": "Tick the thumbnails to keep in the contact sheet and download them — or drag them straight into Premiere.",
  "dans « médias ». Placer écrit le .xml des illustrations aux timecodes (ce qui manque est téléchargé). Après un nouveau montage : exportez-le en XML, déposez-le ici, replacez.": "in “médias”. Place writes the .xml of the illustrations at their timecodes (anything missing is downloaded). After a re-edit: export it as XML, drop it here, place again.",
- "Planche ouverte : cochez et téléchargez, ou glissez les vignettes dans Premiere.": "Contact sheet open: tick and download, or drag the thumbnails into Premiere."
+ "Planche ouverte : cochez et téléchargez, ou glissez les vignettes dans Premiere.": "Contact sheet open: tick and download, or drag the thumbnails into Premiere.",
+ "Une étape tourne : attendez la fin ou arrêtez-la.": "A step is running: wait for it to finish or stop it.",
+ "Dossier introuvable : {name}": "Folder not found: {name}",
+ "Projet : {name}": "Project: {name}",
+ "Séquence pour les timecodes : {name}": "Sequence for the timecodes: {name}",
+ "dossier du projet": "project folder",
+ "Ouvrir un projet…": "Open a project…",
+ "Le dossier de la vidéo : script, rushs, et tout ce qu'Autocut écrit": "The video's folder: script, rushes, and everything Autocut writes",
+ "Retirer de la liste": "Remove from the list",
+ "Ouvrir un dossier…": "Open a folder…",
+ "Fichier › Importer dans Premiere.": "File › Import in Premiere.",
+ "donne les durées": "gives the durations",
+ "Sans séquence (.xml), les durées sont estimées d'après le texte": "Without a sequence (.xml), durations are estimated from the text"
 }

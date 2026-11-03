@@ -91,6 +91,46 @@ main { overflow-y: auto; padding: 28px clamp(16px, 4vw, 48px) 40px; scroll-behav
 .checks .ctext em { color: var(--muted); font-size: 12.5px; font-style: normal; opacity: .85; }
 
 /* step navigation */
+/* the project: the folder every step reads from and writes to */
+.project { position: relative; --proj: var(--muted); margin-top: -6px; }
+.proj-btn { width: 100%; display: flex; align-items: center; gap: 10px; padding: 9px 10px; font: inherit; color: var(--text);
+            text-align: left; cursor: pointer; background: var(--surface); border: 1px solid var(--border);
+            border-left: 4px solid var(--proj); border-radius: 10px; box-shadow: var(--shadow); transition: border-color .12s; }
+.proj-btn:hover { border-color: var(--border-strong); border-left-color: var(--proj); }
+.proj-btn .txt { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.proj-btn b { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj-btn small { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.proj-btn small:empty { display: none; }
+.proj-ico { flex: none; color: var(--proj); display: grid; }
+.proj-ico svg { fill: color-mix(in srgb, var(--proj) 22%, transparent); }
+.chev { flex: none; width: 16px; height: 16px; color: var(--muted); transition: transform .15s; }
+.proj-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.project.none .proj-btn { border-style: dashed; border-left-width: 1px; box-shadow: none; color: var(--accent); }
+.project.none .proj-ico { color: var(--accent); }
+.project.over .proj-btn { border-color: var(--accent); background: var(--accent-soft); }
+.proj-menu { position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 20; background: var(--surface);
+             border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.18); padding: 6px;
+             max-height: 60vh; overflow-y: auto; animation: fade .12s ease-out; }
+.proj-row { display: flex; align-items: center; border-radius: 7px; }
+.proj-row:hover { background: var(--surface-2); }
+.proj-row .icon-btn { visibility: hidden; font-size: 12px; }
+.proj-row:hover .icon-btn { visibility: visible; }
+.proj-item { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 7px 8px; border: 0; background: none;
+             font: inherit; color: var(--text); text-align: left; cursor: pointer; border-radius: 7px; }
+.proj-item.cmd:hover { background: var(--surface-2); }
+.proj-item .txt { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.proj-item b { font-weight: 550; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.proj-item small { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.proj-row.on b { font-weight: 650; }
+.pdot { flex: none; width: 10px; height: 10px; border-radius: 3px; background: var(--proj); }
+.tick { color: var(--accent); font-weight: 600; }
+.plus { flex: none; width: 10px; text-align: center; color: var(--muted); font-weight: 600; }
+.proj-sep { height: 1px; background: var(--border); margin: 6px 4px; }
+.sb-seq { margin-top: 12px; }
+.sb-seq.over { border-color: var(--accent); background: var(--accent-soft); }
+.outdir .link { padding: 0; color: var(--muted); }
+.outdir .link:hover { color: var(--accent); }
+
 .steps { display: flex; flex-direction: column; gap: 4px; }
 .step {
   display: flex; align-items: center; gap: 12px;
@@ -318,6 +358,7 @@ body.dragging .veil { opacity: 1; }
   .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
   .side { flex-direction: row; flex-wrap: wrap; align-items: center; border-right: 0; border-bottom: 1px solid var(--border); padding: 10px 12px; gap: 10px; overflow: visible; }
   .brand { display: none; }
+  .project { flex: 1 1 100%; margin: 0; }
   .setup-nav { margin: 0; border: 0; padding: 0; flex: 0 0 auto; }
   .steps { flex-direction: row; flex: 1 1 auto; }
   .step { padding: 6px 10px; gap: 8px; }

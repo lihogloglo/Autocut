@@ -29,10 +29,22 @@ a browser for page captures, the Premiere panel — is checked and installed fro
 **Installation** page (bottom of the left column; it turns orange when something required is
 missing). The **IA** page (just above it) picks the AI engine every step uses — see [AI engines](#ai-engines).
 
-The window has one page per step (left column) and the script, shared by all steps, at the
-bottom of that column. Drop files anywhere on the window: they go to the zone under the cursor,
-or to the page you are on (a script always goes to the script, rushes to Synchro, a sequence to
-Derush). Everything is remembered between sessions, and each step's result feeds the next.
+The window works on one **project**: a folder, shown at the top of the left column in its own
+colour. It is the video's folder — the script's folder — and every step writes there (the sync
+and derush XML too, wherever the rushes are). Click it to switch to a recent project or
+**open a folder**; drop a folder on it to open that one. Each project remembers its own files, so
+nothing from one video leaks into another. A folder opened for the first time is read for what
+is already in it, so you can start at any step: the script (`.md` first; Premiere's
+`FCP Translation Results` and Autocut's reports are not scripts), the rushes, the latest
+`.sync.xml` (→ Derush), the latest `.autocut.xml` (→ Illustrations and Storyboard timings), and a
+sequence you exported from Premiere (→ Derush input, and the placement target when it is newer
+than the derush). Dropping a script from another folder opens that folder's project; files dropped
+before any script follow it there.
+
+The window has one page per step (left column). Drop files anywhere on the window: they go to
+the zone under the cursor, or to the page you are on (a script always goes to the script, rushes
+to Synchro, a sequence to Derush — or, on Illustrations and Storyboard, to the sequence that gives
+the timecodes). Everything is remembered between sessions, and each step's result feeds the next.
 Steps run in the background: the window stays responsive, a progress bar shows the step, the
 percentage and the time left, and **Arrêter** stops the job at once.
 

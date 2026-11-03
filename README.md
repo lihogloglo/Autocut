@@ -71,7 +71,7 @@ Autocut uses your subscription through the official app of each company, signed 
 
 ## Using it
 
-Everything starts from your **script**: a text or Markdown file, one `##` heading per section, with the links to your sources in it. Drop files anywhere on the window.
+Everything starts from your **script**: a text or Markdown file, one `##` heading per section, with the links to your sources in it. Its folder is the **project** (top left): every step writes there, and opening a folder picks up whatever is already in it, so you can start at any step. Drop files anywhere on the window.
 
 - **Synchro**: drop the rushes (or their folder), click **Synchroniser**, import the `.sync.xml` in Premiere.
 - **Derush**: drop the sequence (the Synchro result, or any sequence exported from Premiere with *File › Export › Final Cut Pro XML*) and the script, click **Derusher**. It also continues a half-done derush without touching your cuts.

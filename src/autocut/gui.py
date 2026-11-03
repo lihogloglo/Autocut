@@ -24,22 +24,19 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from . import project
 from .i18n import tr
 
 APPDATA = Path(os.environ.get("APPDATA", Path.home())) / "autocut"
 STATE_FILE = APPDATA / "app.json"
 WEB = Path(__file__).parent / "web"
 
-SCRIPT_EXT = {".md", ".txt", ".docx"}
+SCRIPT_EXT, MEDIA_EXT = project.SCRIPT_EXT, project.MEDIA_EXT
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
-MEDIA_EXT = {".mp4", ".mov", ".mxf", ".mkv", ".avi", ".mts", ".m2ts", ".wav", ".bwf", ".aif", ".aiff",
-             ".flac", ".mp3", ".m4a"}
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 DEFAULTS = {
-    "script": "", "rushes": [], "sync_out": "",
-    "xml": "", "sequence": "", "mode": "continue", "keep": None, "derush_out": "",
-    "place_xml": "", "chain": True, "step": "sync", "sb_refs": [], "ui_lang": "",
+    **project.EMPTY, "project": "", "projects": {}, "recent": [], "chain": True, "ui_lang": "",
     "opts": {"model": "large-v3", "max_pause": 0.6, "pad_in": 0.12, "pad_out": 0.25,
              "shots": True, "search": True, "web": True, "videos": True, "llm": "auto", "judge": True, "brief": "", "quality": "best",
              "sb_style": "", "sb_pace": 6, "lang": "auto",
@@ -54,10 +51,6 @@ def _python() -> str:
     return str(console if console.exists() else exe)
 
 
-def _exists(p: str) -> bool:
-    return bool(p) and Path(p).exists()
-
-
 def _load_state() -> dict:
     state = json.loads(json.dumps(DEFAULTS))
     try:
@@ -68,11 +61,14 @@ def _load_state() -> dict:
             state["opts"]["shot_height"] = DEFAULTS["opts"]["shot_height"]
     except (OSError, ValueError):
         pass
-    state["rushes"] = [r for r in state["rushes"] if _exists(r)]
-    state["sb_refs"] = [r for r in state["sb_refs"] if _exists(r)]
-    for k in ("script", "sync_out", "xml", "derush_out", "place_xml"):
-        if not _exists(state[k]):
-            state[k] = ""
+    state.update(project.clean(state))
+    if not state["project"] and state["script"]:      # state saved before projects existed
+        state["project"] = str(Path(state["script"]).parent.resolve())
+    if state["project"] and not Path(state["project"]).is_dir():
+        state["project"] = ""
+    state["recent"] = [r for r in state["recent"] if Path(r).is_dir()]
+    if state["project"] and state["project"] not in state["recent"]:
+        state["recent"].insert(0, state["project"])
     return state
 
 
@@ -108,17 +104,6 @@ class Job:
                                      creationflags=NO_WINDOW | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
         self.emit({"type": "job", "step": step, "running": True})
         threading.Thread(target=self._read, args=(self.proc, result, on_done), daemon=True).start()
-
-    def _place_inputs(self) -> tuple[Path | None, Path | None]:
-        """(derush, edit) for the placement. One sequence is given; when it is not Autocut's own derush,
-        that derush (if any) still helps: its Sxxx markers find the sentences without listening."""
-        s = self._state
-        target = Path(s["place_xml"]) if s["place_xml"] else None
-        if not target:
-            return None, None
-        if target.name.lower().endswith(".autocut.xml"):
-            return target, None
-        return (Path(s["derush_out"]) if s["derush_out"] else None), target
 
     def stop(self) -> None:
         if self.running:
@@ -226,6 +211,9 @@ class Api:
                 pass
 
     def _save(self) -> None:
+        s = self._state
+        if s["project"]:
+            s["projects"][s["project"]] = {k: s[k] for k in project.KEYS}
         try:
             APPDATA.mkdir(parents=True, exist_ok=True)
             tmp = STATE_FILE.with_suffix(".tmp")
@@ -240,9 +228,80 @@ class Api:
     # state for the page
     def view(self) -> dict:
         s = self._state
-        return {"state": s, "sequences": self._sequences(), "scan": self.scan(), "sources": self._sources(),
+        return {"state": s, "project": self._project(), "sequences": self._sequences(), "scan": self.scan(),
+                "sources": self._sources(),
                 "job": {"running": self._job.running, "step": self._job.step}, "checks": self._checks,
                 "keys": self._keys(), "ai": self._ai, "storyboard": self._storyboard()}
+
+    def _project(self) -> dict:
+        s = self._state
+        rows = [{"path": r, "name": Path(r).name or r, "where": str(Path(r).parent)} for r in s["recent"]]
+        return {"path": s["project"], "name": Path(s["project"]).name if s["project"] else "", "recent": rows}
+
+    # projects
+    def _switch(self, folder: Path, carry: bool = False) -> None:
+        """Make `folder` the current project: its saved inputs and outputs, or what is found in it.
+        carry: the current inputs come along (they were dropped before a script said which project)."""
+        s = self._state
+        self._save()
+        key = str(folder.resolve())
+        prev, prev_key = {k: s[k] for k in project.KEYS}, s["project"]
+        data = project.merge(s["projects"].get(key), folder)
+        if carry:
+            for k in project.KEYS:
+                if k not in ("script", "step") and prev[k] and not data[k]:
+                    data[k] = prev[k]
+            if prev_key and prev_key != key:      # it only held these files until the script came
+                s["projects"].pop(prev_key, None)
+                s["recent"] = [r for r in s["recent"] if r != prev_key]
+        s.update(data)
+        s["project"] = key
+        s["recent"] = [key, *[r for r in s["recent"] if r != key]][:12]
+        self._scan_key = None
+        self._title()
+        if self._sheet_window:       # the contact sheet belongs to the project it was opened from
+            try:
+                self._sheet_window[0].destroy()
+            except Exception:
+                pass
+            self._sheet_window = None
+
+    def _title(self) -> None:
+        name = Path(self._state["project"]).name if self._state["project"] else ""
+        if self._window:
+            try:
+                self._window.set_title(f"Autocut — {name}" if name else "Autocut")
+            except Exception:
+                pass
+
+    def open_project(self, folder: str = "") -> dict | None:
+        """A folder from the menu or dropped on it (none: ask for one)."""
+        if self._job.running:
+            return {"ok": False, "message": tr("Une étape tourne : attendez la fin ou arrêtez-la.")}
+        if not folder:
+            import webview
+            start = str(Path(self._state["project"]).parent) if self._state["project"] else ""
+            picked = self._window.create_file_dialog(webview.FileDialog.FOLDER, directory=start)
+            if not picked:
+                return None
+            folder = picked if isinstance(picked, str) else picked[0]
+        p = Path(folder)
+        if not p.is_dir():
+            self._state["recent"] = [r for r in self._state["recent"] if r != folder]
+            self._save()
+            return {"ok": False, "message": tr("Dossier introuvable : {name}", name=folder), "view": self.view()}
+        self._switch(p)
+        self._save()
+        return {"ok": True, "view": self.view()}
+
+    def forget_project(self, folder: str) -> dict:
+        """Off the list (nothing is deleted on disk: reopening the folder finds its files again)."""
+        s = self._state
+        if folder != s["project"]:
+            s["recent"] = [r for r in s["recent"] if r != folder]
+            s["projects"].pop(folder, None)
+            self._save()
+        return self.view()
 
     @staticmethod
     def _keys() -> dict:
@@ -367,6 +426,7 @@ class Api:
                     pass
 
     def init(self) -> dict:
+        self._title()
         return self.view()
 
     def poll(self) -> dict:
@@ -416,16 +476,31 @@ class Api:
     def add(self, zone: str, paths: list[str]) -> dict:
         s = self._state
         notes = []
+        if zone == "project":            # dropped on the project button: open that folder
+            if self._job.running:
+                return {"view": self.view(), "notes": [tr("Une étape tourne : attendez la fin ou arrêtez-la.")]}
+            p = Path(paths[0]) if paths else None
+            if p and p.exists():
+                self._switch(p if p.is_dir() else p.parent)
+                self._save()
+                notes.append(tr("Projet : {name}", name=Path(s["project"]).name))
+            return {"view": self.view(), "notes": notes}
         for raw in paths:
             p = Path(raw)
             ext = p.suffix.lower()
             if p.is_file() and ext in SCRIPT_EXT:
+                # the script decides the project: its folder is where every step writes
+                folder = p.parent
+                if (not s["project"] or not project.inside(folder, Path(s["project"]))) and not self._job.running:
+                    self._switch(folder, carry=not s["script"])
+                    notes.append(tr("Projet : {name}", name=folder.name))
                 s["script"] = str(p)
                 notes.append(tr("Script : {name}", name=p.name))
-            elif p.is_file() and ext == ".xml":
-                if zone == "sources":
+                continue
+            if p.is_file() and ext == ".xml":
+                if zone in ("sources", "storyboard"):
                     s["place_xml"] = str(p)
-                    notes.append(tr("Images placées sur : {name}", name=p.name))
+                    notes.append(tr("Séquence pour les timecodes : {name}", name=p.name))
                 else:
                     s["xml"], s["sequence"], s["keep"], s["mode"] = str(p), "", None, "continue"
                     notes.append(tr("Séquence pour le derush : {name}", name=p.name))
@@ -508,7 +583,7 @@ class Api:
         if step == "sync":
             if not s["rushes"]:
                 return {"ok": False, "message": tr("Déposez d'abord les rushs.")}
-            args = ["autocut", *s["rushes"], "--model", o["model"]]
+            args = ["autocut", *s["rushes"], "--model", o["model"], *self._out_arg()]
             self._job.start("sync", args, self._sync_done)
         elif step == "derush":
             if not s["xml"]:
@@ -520,7 +595,7 @@ class Api:
                 keep = str(s["keep"]) if s["keep"] is not None else "auto"
             args = ["autocut", s["xml"], s["script"], "--model", o["model"], "--max-pause", str(o["max_pause"]),
                     "--pad-in", str(o["pad_in"]), "--pad-out", str(o["pad_out"]), "--keep-until", keep,
-                    "--language", o.get("lang", "auto")]
+                    "--language", o.get("lang", "auto"), *self._out_arg()]
             if s["sequence"]:
                 args += ["--sequence", s["sequence"]]
             self._job.start("derush", args, self._derush_done)
@@ -548,8 +623,7 @@ class Api:
                 args += ["--derush", str(derush)]
             if edit:
                 args += ["--edit", str(edit)]
-            self._job.start("place", args, lambda r: tr("Placé : importez « {name} » dans Premiere (Fichier > Importer).",
-                                                        name=Path(r).name) if r else "")
+            self._job.start("place", args, self._place_done)
         elif step == "storyboard":
             if not s["script"]:
                 return {"ok": False, "message": tr("Déposez d'abord le script.")}
@@ -565,6 +639,17 @@ class Api:
                 args += ["--edit", str(edit)]
             self._job.start("storyboard", args, self._storyboard_done)
         return {"ok": True}
+
+    def _out_arg(self) -> list[str]:
+        """Sync and derush write into the project folder (without one: next to their input)."""
+        return ["--out", self._state["project"]] if self._state["project"] else []
+
+    def _place_done(self, result: str) -> str:
+        if result:
+            self._state["broll_out"] = result
+            self._save()
+            self._push()
+        return tr("Placé : importez « {name} » dans Premiere (Fichier > Importer).", name=Path(result).name) if result else ""
 
     def _place_inputs(self) -> tuple[Path | None, Path | None]:
         """(derush, edit) for the placement. One sequence is given; when it is not Autocut's own derush,

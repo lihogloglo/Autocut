@@ -14,6 +14,14 @@
       <img class="logo" src="autocut.png" alt="">
       <span>Autocut</span>
     </div>
+    <div class="project" id="project" data-zone="project">
+      <button class="proj-btn" id="proj-btn" aria-haspopup="menu" aria-expanded="false">
+        <span class="proj-ico"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+        <span class="txt"><b id="proj-name" data-noi18n></b><small id="proj-where" data-noi18n></small></span>
+        <svg class="chev" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg>
+      </button>
+      <div class="proj-menu" id="proj-menu" role="menu" hidden></div>
+    </div>
     <nav class="steps" id="steps">
       <button class="step" data-step="sync"><span class="num">1</span><span class="txt"><b>Synchro</b><small></small></span></button>
       <button class="step" data-step="derush"><span class="num">2</span><span class="txt"><b>Derush</b><small></small></span></button>
@@ -106,6 +114,7 @@
           <div class="pslot" id="place-slot"></div>
           <button class="btn" data-run="place">Placer les images</button></div>
       </div>
+      <div class="result" id="res-place"></div>
       <details class="settings">
         <summary>Réglages de la collecte</summary>
         <div class="grid">
@@ -142,6 +151,7 @@
         <textarea data-opt="sb_style" rows="3" placeholder="Ex. : un mélange d'animations 3D lowpoly façon Blender, comme Fern et Lemmino, et de motion design After Effects épuré pour les chiffres et les cartes. Palette sombre, accents ambre."></textarea>
       </label>
       <div class="refs" data-zone="storyboard" id="sb-refs"></div>
+      <div class="pslot sb-seq" id="sb-seq" data-zone="storyboard"></div>
       <div class="sb-info" id="sb-info"></div>
       <div class="actions">
         <button class="btn primary big" data-run="storyboard" id="go-sb">Créer le storyboard</button>

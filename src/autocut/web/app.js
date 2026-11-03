@@ -6,6 +6,20 @@ const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const base = (p) => String(p || "").split(/[\\/]/).pop();
 const dir = (p) => String(p || "").replace(/[\\/][^\\/]*$/, "");
+// a file's folder as shown under its name: nothing when it is in the project, the sub-folder when below it
+function where(p) {
+  const root = ((app.view && app.view.project && app.view.project.path) || "").toLowerCase(), d = dir(p);
+  if (!root) return d;
+  if (d.toLowerCase() === root) return "";
+  if (d.toLowerCase().startsWith(root + "\\")) return d.slice(root.length + 1);
+  return d;
+}
+// each project its own colour, so two folders are told apart at a glance
+function hue(path) {
+  let h = 0;
+  for (const c of String(path).toLowerCase()) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return h % 360;
+}
 const AUDIO = /\.(wav|bwf|aif|aiff|flac|mp3|m4a)$/i;
 const VIDEO = /\.(mp4|mov|mxf|mkv|avi|mts|m2ts)$/i;
 const STEP_OF_JOB = { sync: "sync", derush: "derush", collect: "sources", place: "sources", storyboard: "storyboard", setup: "setup" };
@@ -87,6 +101,13 @@ const app = {
 
   bind() {
     $$(".step").forEach((b) => b.addEventListener("click", () => this.show(b.dataset.step)));
+    $("#proj-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!this.view.project.recent.length) return this.act("proj-open");
+      this.menu(!!$("#proj-menu").hidden);
+    });
+    document.addEventListener("click", (e) => { if (!e.target.closest("#project")) this.menu(false); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") this.menu(false); });
     document.addEventListener("click", async (e) => {
       const t = e.target.closest("[data-pick],[data-run],[data-remove],[data-act]");
       if (!t || t.disabled) return;
@@ -178,6 +199,15 @@ const app = {
     else if (what === "ai-install") { const r = await this.api.ai_install(arg); if (!r.ok) this.toast(r.message); }
     else if (what === "ai-use") await this.set("opts.llm", arg);
     else if (what === "use-sync") { await this.set("xml", this.view.state.sync_out); this.show("derush"); }
+    else if (what === "proj-open") {
+      this.menu(false);
+      const r = await this.api.open_project(arg || "");
+      if (!r) return;
+      if (r.view) this.render(r.view);
+      if (r.ok) this.show(this.view.state.step, false); else this.toast(r.message);
+    }
+    else if (what === "proj-forget") { this.render(await this.api.forget_project(arg)); this.menu(true); }
+    else if (what === "proj-reveal") { this.menu(false); this.api.open_path(this.view.project.path); }
   },
   async poll() {
     if (!["sources", "storyboard"].includes(this.step) || !this.view) return;
@@ -198,6 +228,7 @@ const app = {
     this.view = view;
     const s = view.state;
     if (view.job) { this.job.running = view.job.running; if (view.job.running) this.job.step = view.job.step; }
+    this.renderProject();
     this.renderScript();
     this.renderSync();
     this.renderDerush();
@@ -219,6 +250,32 @@ const app = {
         : t("Gratuite sur {link}. Elle reste sur cet ordinateur.",
             { link: `<button class="link" data-act="url" data-arg="https://aistudio.google.com/apikey">aistudio.google.com/apikey</button>` });
     }
+  },
+
+  renderProject() {
+    const pr = this.view.project || { recent: [] }, box = $("#project");
+    box.classList.toggle("none", !pr.path);
+    box.style.setProperty("--proj", pr.path ? `hsl(${hue(pr.path)} 62% 52%)` : "var(--muted)");
+    $("#proj-name").textContent = pr.path ? pr.name : t("Ouvrir un projet…");
+    $("#proj-where").textContent = pr.path ? dir(pr.path) : "";
+    $("#proj-btn").title = pr.path || t("Le dossier de la vidéo : script, rushs, et tout ce qu'Autocut écrit");
+    if (!$("#proj-menu").hidden) this.menu(true);
+  },
+  menu(open) {
+    const m = $("#proj-menu"), pr = (this.view && this.view.project) || { recent: [] };
+    $("#proj-btn").setAttribute("aria-expanded", String(open));
+    if (!open) { m.hidden = true; return; }
+    const cur = (pr.path || "").toLowerCase();
+    m.innerHTML = pr.recent.map((r) => {
+      const on = r.path.toLowerCase() === cur;
+      return `<div class="proj-row ${on ? "on" : ""}" style="--proj:hsl(${hue(r.path)} 62% 52%)">
+        <button class="proj-item" role="menuitem" data-act="${on ? "proj-reveal" : "proj-open"}" data-arg="${esc(r.path)}" title="${esc(r.path)}">
+          <i class="pdot"></i><span class="txt"><b data-noi18n>${esc(r.name)}</b><small data-noi18n>${esc(r.where)}</small></span>${on ? `<span class="tick">✓</span>` : ""}</button>
+        ${on ? "" : `<button class="icon-btn" title="${esc(t("Retirer de la liste"))}" data-act="proj-forget" data-arg="${esc(r.path)}">✕</button>`}</div>`;
+    }).join("") + `<div class="proj-sep"></div>
+      <button class="proj-item cmd" role="menuitem" data-act="proj-open"><span class="plus">+</span><span class="txt"><b>${t("Ouvrir un dossier…")}</b></span></button>
+      ${pr.path ? `<button class="proj-item cmd" role="menuitem" data-act="proj-reveal"><span class="plus">↗</span><span class="txt"><b>${t("Afficher dans l'explorateur")}</b></span></button>` : ""}`;
+    m.hidden = false;
   },
 
   renderNav() {
@@ -254,7 +311,7 @@ const app = {
       el.classList.toggle("big", big);
       el.innerHTML = s.script
         ? `<div class="row"><span class="kind script">Script</span>
-             <span class="fname"><b title="${esc(s.script)}">${esc(base(s.script))}</b><small>${esc(dir(s.script))}</small></span>
+             <span class="fname"><b title="${esc(s.script)}">${esc(base(s.script))}</b><small>${esc(where(s.script))}</small></span>
              <button class="btn small" data-act="open" data-arg="${esc(s.script)}">${t("Ouvrir")}</button>
              <button class="btn small" data-pick="script">${t("Changer…")}</button>
              <button class="icon-btn" title="${esc(t("Retirer"))}" data-remove="script">✕</button></div>`
@@ -272,7 +329,7 @@ const app = {
     const kind = (p) => /\.[^\\/]+$/.test(p) ? (AUDIO.test(p) ? ["audio", t("Son")] : VIDEO.test(p) ? ["video", t("Vidéo")] : ["", t("Fichier")]) : ["folder", t("Dossier")];
     $("#rushes").innerHTML = s.rushes.map((r) => {
       const [k, label] = kind(r);
-      return `<li><span class="kind ${k}">${label}</span><span class="fname"><b>${esc(base(r))}</b><small>${esc(dir(r))}</small></span>
+      return `<li><span class="kind ${k}">${label}</span><span class="fname"><b title="${esc(r)}">${esc(base(r))}</b><small>${esc(r.toLowerCase() === (this.view.project.path || "").toLowerCase() ? t("dossier du projet") : where(r))}</small></span>
               <button class="icon-btn" title="${esc(t("Retirer"))}" data-remove="rushes" data-value="${esc(r)}">✕</button></li>`;
     }).join("") + (s.rushes.length > 1 ? `<li class="clear" style="border:0;background:none;padding:0"><button class="link" data-remove="rushes">${t("Tout retirer")}</button></li>` : "");
     $(".drop[data-zone=sync]").classList.toggle("compact", s.rushes.length > 0);
@@ -294,7 +351,7 @@ const app = {
     const s = this.view.state, scan = this.view.scan || {}, seqs = this.view.sequences || [];
     $("#drop-derush").hidden = !!s.xml;
     $("#xml-card").innerHTML = s.xml ? `<div class="row"><span class="kind video">XML</span>
-        <span class="fname"><b>${esc(base(s.xml))}</b><small>${esc(dir(s.xml))}</small></span>
+        <span class="fname"><b title="${esc(s.xml)}">${esc(base(s.xml))}</b><small>${esc(where(s.xml))}</small></span>
         ${seqs.length > 1 ? `<select id="seq-pick" title="${esc(t("Séquence à derusher"))}" data-noi18n>${seqs.map((n) =>
           `<option ${n === (s.sequence || seqs[0]) ? "selected" : ""}>${esc(n)}</option>`).join("")}</select>` : ""}
         <button class="btn small" data-pick="derush">${t("Changer…")}</button>
@@ -362,8 +419,8 @@ const app = {
 
   renderSources() {
     const s = this.view.state, src = this.view.sources || {};
-    $("#outdir").innerHTML = src.out ? `${t("Dossier des illustrations")} <code data-noi18n>${esc(src.out)}</code>
-      ${src.exists ? `<button class="btn small" data-act="open" data-arg="${esc(src.out)}">${t("Ouvrir")}</button>` : ""}` : "";
+    $("#outdir").innerHTML = src.out && src.exists ? `<button class="link" data-act="open" data-arg="${esc(src.out)}" title="${esc(src.out)}">📁 <span data-noi18n>${esc(where(src.out) ? src.out : base(src.out))}</span></button>` : "";
+    $("#res-place").innerHTML = s.broll_out ? this.resultCard(s.broll_out, t("Fichier › Importer dans Premiere.")) : "";
     $("#pipeline").style.opacity = s.script ? "" : ".5";
 
     const fromDerush = s.place_xml && s.place_xml === s.derush_out;
@@ -429,13 +486,19 @@ const app = {
         <button class="icon-btn" title="${esc(t("Retirer"))}" data-remove="sb_refs" data-value="${esc(r)}">✕</button></div>`).join("") +
       `<span class="muted" style="flex:1;min-width:200px">${s.sb_refs.length ? "" : t("Images de référence du style (facultatif) : glissez-les ici.") + " "}</span>
        <button class="btn small" data-pick="storyboard">${t("Ajouter…")}</button>`;
-    const timing = s.derush_out || s.place_xml ? t("durées prises dans le derush / le montage") : t("pas de derush : durées estimées d'après le texte");
+    const seq = s.place_xml || s.derush_out;
+    $("#sb-seq").className = `pslot sb-seq ${seq ? "set" : ""}`;
+    $("#sb-seq").innerHTML = seq
+      ? `<span class="fname"><b title="${esc(seq)}">${esc(base(seq))}</b><small>${seq === s.derush_out ? t("résultat du derush") : t("votre séquence")} · ${t("donne les durées")}</small></span>
+         <button class="btn small" data-pick="sources">${t("Changer…")}</button>${s.place_xml ? `<button class="icon-btn" title="${esc(t("Retirer"))}" data-remove="place_xml">✕</button>` : ""}`
+      : `<span class="muted" style="flex:1">${t("Sans séquence (.xml), les durées sont estimées d'après le texte")}</span>
+         <button class="btn small" data-pick="sources">${t("Choisir…")}</button>`;
     $("#sb-info").innerHTML = !s.script ? "" : sb.beats
       ? `<b>${t("{n} plans", { n: sb.beats })}</b>, ${t("{n} cartes", { n: sb.cards })} · ${esc(sb.created)} · ${esc(sb.engine)} · ${sb.timing === "montage" ? t("durées du montage") : t("durées estimées")}
          ${sb.xml ? "<br>" + t("Premiere : panneau Autocut › Storyboard › Placer, ou importez {file}.",
            { file: `<button class="link" data-act="reveal" data-arg="${esc(sb.xml)}" data-noi18n>${esc(base(sb.xml))}</button>` }) : ""}
          ${sb.brief !== (s.opts.sb_style || "").trim() ? "<br>" + t("Le style a changé depuis : recréez pour une nouvelle bible de style.") : "<br>" + t("Recréer garde la bible de style et les plans verrouillés sur la page.")}`
-      : esc(timing);
+      : "";
     $("#go-sb").disabled = !s.script || this.job.running;
     $("#go-sb").textContent = sb.beats ? t("Recréer le storyboard") : t("Créer le storyboard");
     $("#open-sb").disabled = !sb.beats;
