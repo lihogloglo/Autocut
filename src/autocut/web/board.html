@@ -44,6 +44,17 @@ main > * { flex-shrink:0; }
 .tile:hover { border-color:var(--c); }
 .tile.sel { border-color:var(--c); box-shadow:0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent); }
 .tile.empty { opacity:.5; cursor:default; }
+.tile.add { border-style:dashed; align-items:center; justify-content:center; color:var(--muted); cursor:pointer; min-height:120px; }
+.tile.add::before { display:none; }
+.tile.add b { font-size:28px; font-weight:400; line-height:1; }
+.tile.add:hover { color:var(--accent); border-color:var(--accent); }
+.tile-edit { display:grid; grid-template-columns:minmax(120px, 220px) 1fr auto auto; gap:8px; align-items:end; }
+.tile-edit label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+.tile-edit input { font:inherit; color:var(--text); background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:6px 10px; user-select:text; }
+.tile-edit .name-in { font-weight:650; font-size:15px; }
+.btn.danger:hover { border-color:var(--danger); color:var(--danger); }
+.results-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+@media (max-width: 820px) { .tile-edit { grid-template-columns:1fr 1fr; } }
 .tile .top { display:flex; align-items:center; gap:8px; }
 .tile .top b { font-size:15px; flex:1; }
 .tile .count { color:var(--muted); font-size:12px; }
@@ -135,11 +146,14 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const API = () => window.pywebview && window.pywebview.api;
-const FAMILIES = [["whoosh", "Whoosh"], ["click", "Clic"], ["pop", "Pop"], ["typing", "Clavier"], ["hit", "Impact"], ["riser", "Montée"], ["other", "Autres"]];
+const tiles = () => settings.tiles || [];
+const tileOf = (id) => tiles().find((x) => x.id === id);
+const hueOf = (s) => { let h = 0; for (const c of String(s)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h % 360; };
+const tileColor = (x) => (x.kind ? `var(--k-${x.kind})` : `hsl(${hueOf(x.id)} 55% 50%)`);
 const SOURCE = { folder: "", earshot: "banque", epidemic: "Epidemic" };
 const PAGE = 120;
 
-let items = [], byId = {}, settings = { stars: [], random: true, tab: "sfx" }, next = {}, epidemicOn = false;
+let items = [], byId = {}, settings = { stars: [], random: true, tab: "sfx", tiles: [] }, next = {}, members = {}, epidemicOn = false;
 let family = "whoosh", found = { sfx: [], amb: [], music: [] }, foundLabel = {}, starsOnly = false, shown = PAGE, sig = "";
 let view = { amb: "lib", music: "lib" }, suggestions = {}, briefs = {}, scriptName = "", busy = {}, cueShown = {};
 const fmtLvl = (v) => (v == null ? "" : `${v > 0 ? "+" : ""}${(+v).toFixed(0)} dB`);
@@ -159,6 +173,8 @@ function toast(msg) {
 const fmt = (s) => { s = Math.round(s || 0); return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : `${(+s).toFixed(0)} s`; };
 const fmtShort = (s) => (s < 10 ? `${(+s).toFixed(1)} s` : fmt(s));
 const starred = (id) => settings.stars.includes(id);
+// ★ in the sound effects: the take is in the selected tile's playlist; elsewhere: a favourite
+const picked = (id) => (settings.tab === "sfx" ? ((tileOf(family) || {}).picks || []).includes(id) : starred(id));
 const color = (it) => `var(--k-${it.layer === "sfx" ? it.family || "other" : it.layer})`;
 
 // --- loading --------------------------------------------------------------------------------------
@@ -166,7 +182,9 @@ async function load(keepScroll) {
   const r = await get("/api/catalog");
   if (!r.ok) return toast(t("Erreur : {error}", { error: r.error }));
   const s = r.items.map((i) => i.id).join("|");
-  settings = r.settings; next = r.next; epidemicOn = r.epidemic; scriptName = r.script || "";
+  settings = r.settings; next = r.next; members = r.members || {}; epidemicOn = r.epidemic; scriptName = r.script || "";
+  for (const x of tiles()) for (const it of x.epi || []) byId[it.id] = it;
+  if (!tileOf(family) && tiles().length) family = tiles()[0].id;
   if (!Object.values(busy).some(Boolean)) suggestions = r.suggestions || {};
   for (const b of Object.values(suggestions)) for (const c of b.cues || []) for (const it of c.results || []) byId[it.id] = it;
   $("#epi").hidden = !epidemicOn;
@@ -176,6 +194,7 @@ async function load(keepScroll) {
   for (const l of ["sfx", "amb", "music"]) $(`[data-n="${l}"]`).textContent = items.filter((i) => i.layer === l).length || "";
   render();
 }
+async function reload() { sig = ""; await load(); }
 window.addEventListener("focus", () => { if (!document.activeElement || !document.activeElement.closest(".ask, .cue")) load(true); });
 
 function setTab(tab) {
@@ -227,6 +246,7 @@ $("#main").addEventListener("keydown", (e) => {
 
 async function searchEpidemic() {
   const tab = settings.tab, q = $("#q").value.trim();
+  if (tab === "sfx" && !q) { const b = $('[data-act="tile-search"]'); if (b) b.click(); return; }
   $("#epi").disabled = true; $("#epi").textContent = t("Recherche…");
   try {
     const r = await post("/api/search", { layer: tab, q, family: tab === "sfx" ? family : "" });
@@ -301,13 +321,13 @@ function cueHtml(c, tab) {
 function renderTiles() {
   const el = $("#tiles");
   if (!el) return;
-  el.innerHTML = FAMILIES.map(([f, label]) => {
-    const all = items.filter((i) => i.layer === "sfx" && i.family === f), st = all.filter((i) => starred(i.id)).length;
-    const nx = byId[next[f]];
-    const rnd = settings.random !== false;
-    const count = all.length ? (st ? t("{n} étoilées sur {m}", { n: st, m: all.length }) : t("{n} prises", { n: all.length })) : t("aucune");
-    return `<div class="tile ${f === family ? "sel" : ""} ${all.length ? "" : "empty"}" style="--c:var(--k-${f})" data-family="${f}" ${all.length ? `data-drag="family:${f}"` : ""}>
-      <div class="top"><b>${esc(t(label))}</b>
+  const rnd = settings.random !== false;
+  el.innerHTML = tiles().map((x) => {
+    const all = members[x.id] || [], st = (x.picks || []).filter((i) => byId[i]).length;
+    const nx = byId[next[x.id]];
+    const count = all.length ? (st ? t("{n} étoilées sur {m}", { n: st, m: all.length }) : t("{n} prises", { n: all.length })) : t("aucune : cliquez pour chercher");
+    return `<div class="tile ${x.id === family ? "sel" : ""} ${all.length ? "" : "empty"}" style="--c:${tileColor(x)}" data-family="${esc(x.id)}" ${all.length ? `data-drag="family:${esc(x.id)}"` : ""}>
+      <div class="top"><b data-noi18n>${esc(t(x.label))}</b>
         <button class="icon" data-act="play-next" title="${esc(t("Écouter la prochaine prise"))}" ${nx ? "" : "disabled"}>▶</button>
         ${rnd ? `<button class="icon" data-act="skip" title="${esc(t("Une autre prise"))}" ${all.length > 1 ? "" : "disabled"}>⟳</button>` : ""}</div>
       <span class="count">${esc(count)}</span>
@@ -315,8 +335,18 @@ function renderTiles() {
         <span class="lvl" title="${esc(t("Niveau conseillé dans Premiere (gain du clip)"))}">${esc(fmtLvl(nx && waves[nx.id] && waves[nx.id].level))}</span></span>
       <canvas data-wave="${nx ? esc(nx.id) : ""}"></canvas>
       <span class="state"></span></div>`;
-  }).join("");
+  }).join("") + `<div class="tile add" data-act="new-tile" title="${esc(t("Une tuile à vous : un nom, des mots de recherche, les sons que vous étoilez"))}"><b>+</b><span>${esc(t("Nouvelle tuile"))}</span></div>`;
   observe();
+}
+
+function tileEditor(x) {
+  return `<div class="tile-edit" data-tile="${esc(x.id)}">
+    <label>${esc(t("Nom de la tuile"))}<input class="name-in" data-field="label" data-noi18n value="${esc(t(x.label))}"></label>
+    <label>${esc(t("Mots de recherche (en anglais : les sons d'Epidemic sont nommés en anglais)"))}
+      <input data-field="query" data-noi18n value="${esc(x.query || "")}" placeholder="${esc(t("ex. : riser, glitch, paper slide, camera shutter"))}"></label>
+    ${epidemicOn ? `<button class="btn" data-act="tile-search">${esc(t("Chercher sur Epidemic"))}</button>` : "<span></span>"}
+    <button class="btn danger" data-act="tile-delete">${esc(t("Supprimer la tuile"))}</button>
+  </div>`;
 }
 
 function matches(it, q) {
@@ -327,16 +357,25 @@ function matches(it, q) {
 
 function renderList() {
   const tab = settings.tab || "sfx", q = $("#q").value.trim().toLowerCase();
-  let rows = items.filter((i) => i.layer === tab && (tab !== "sfx" || !family || i.family === family || q));
-  rows = rows.filter((i) => matches(i, q) && (!starsOnly || starred(i.id)));
-  rows.sort((a, b) => (starred(b.id) - starred(a.id)) || 0);
-  const epi = (found[tab] || []).filter((i) => !starsOnly || starred(i.id));
+  const cur = tab === "sfx" ? tileOf(family) : null;
+  let rows = tab === "sfx" && cur && !q ? (members[cur.id] || []).map((i) => byId[i]).filter(Boolean)
+    : items.filter((i) => i.layer === tab && matches(i, q));
+  rows = rows.filter((i) => !starsOnly || picked(i.id));
+  if (!(tab === "sfx" && !q)) rows.sort((a, b) => (picked(b.id) - picked(a.id)) || 0);
+  const epi = (q || tab !== "sfx" ? found[tab] || [] : []).filter((i) => !starsOnly || picked(i.id));
+  const hint = settings.random !== false ? t("★ : les prises que la tuile « {name} » tire au hasard", { name: cur ? t(cur.label) : "" })
+    : t("Cliquez une ligne : la tuile la donnera à chaque glisser");
   const head = tab === "sfx"
-    ? `<h2>${esc(q ? t("Tous les bruitages") : t(FAMILIES.find(([f]) => f === family)[1]))} <small>${esc(settings.random !== false
-        ? t("★ : les prises que la tuile tire au hasard") : t("Cliquez une ligne : la tuile la donnera à chaque glisser"))}</small></h2>`
+    ? (q ? `<div class="results-head"><h2>${esc(t("Résultats pour « {q} »", { q }))}</h2>
+          <button class="btn" data-act="tile-from-search">${esc(t("+ Tuile « {q} »", { q }))}</button>
+          <small class="muted">${esc(hint)}</small></div>`
+        : (cur ? tileEditor(cur) : "") + `<h2>${esc(cur ? t(cur.label) : "")} <small>${esc(hint)}</small></h2>`)
     : `<h2>${esc(tab === "amb" ? t("Ambiances") : t("Musiques"))} <small>${esc(t("Cliquez la forme d'onde pour écouter depuis là"))}</small></h2>`;
   const empty = !rows.length && !epi.length
-    ? `<div class="list"><div class="empty-note">${esc(items.some((i) => i.layer === tab) || q || starsOnly ? t("Aucun son ne correspond.")
+    ? `<div class="list"><div class="empty-note">${esc(tab === "sfx" && cur && !q && !starsOnly ? (epidemicOn
+          ? t("Rien dans cette tuile : écrivez des mots de recherche en anglais, puis « Chercher sur Epidemic » ; ou filtrez vos sons en haut et étoilez-les.")
+          : t("Rien dans cette tuile : filtrez vos sons en haut et étoilez-les."))
+        : items.some((i) => i.layer === tab) || q || starsOnly ? t("Aucun son ne correspond.")
         : tab === "music" ? t("Aucune musique : ajoutez votre dossier de musiques sur la page Sons de la fenêtre Autocut, ou cherchez sur Epidemic.")
         : tab === "amb" ? t("Aucune ambiance : ajoutez un dossier sur la page Sons de la fenêtre Autocut, ou cherchez sur Epidemic.")
         : t("Aucun son : ajoutez vos dossiers sur la page Sons de la fenêtre Autocut."))}</div></div>` : "";
@@ -348,14 +387,14 @@ function renderList() {
 }
 
 function rowHtml(it) {
-  const cur = settings.tab === "sfx" && next[it.family] === it.id;
+  const cur = settings.tab === "sfx" && next[family] === it.id;
   const sub = it.layer === "music"
     ? [it.artist, it.stem && t("stem {part}", { part: it.stem }), it.bpm >= 40 ? `${it.bpm} BPM` : "", ...(it.tags || [])].filter(Boolean).join(" · ")
     : [it.source === "earshot" ? t("banque intégrée, une prise neuve à chaque glisser") : "", it.where || ""].filter(Boolean).join(" · ");
   const badge = it.source === "epidemic" ? `<span class="badge ep">Epidemic</span><button class="icon sim" data-act="similar" title="${esc(t("Des sons qui ressemblent à celui-ci"))}">≈</button>`
     : it.source === "earshot" ? `<span class="badge">${esc(t("banque"))}</span>` : "";
   return `<div class="row ${cur ? "cur" : ""}" style="--c:${color(it)}" data-id="${esc(it.id)}" data-drag="${esc(it.id)}">
-    <button class="icon star ${starred(it.id) ? "on" : ""}" data-act="star" title="${esc(t("Étoile"))}">${starred(it.id) ? "★" : "☆"}</button>
+    <button class="icon star ${picked(it.id) ? "on" : ""}" data-act="star" title="${esc(settings.tab === "sfx" ? t("Dans la tuile sélectionnée") : t("Étoile"))}">${picked(it.id) ? "★" : "☆"}</button>
     <button class="icon" data-act="play" title="${esc(t("Écouter"))}">▶</button>
     <span class="name"><b title="${esc(it.name)}" data-noi18n>${esc(it.title)}${badge}</b><small data-noi18n title="${esc(sub)}">${esc(sub)}</small>
       <span class="state"></span></span>
@@ -495,11 +534,37 @@ document.addEventListener("click", async (e) => {
     return render();
   }
   if (act === "star" && row) {
-    const id = row.dataset.id, on = !starred(id);
-    settings = (await post("/api/settings", { star: id, on })).settings;
+    const id = row.dataset.id, on = !picked(id);
+    if (settings.tab === "sfx") {
+      const r = await post("/api/tile", { action: "pick", id: family, item: id, on });
+      if (!r.ok) return toast(t("Erreur : {error}", { error: r.error }));
+      Object.assign(tileOf(family), r.tile);
+    } else settings = (await post("/api/settings", { star: id, on })).settings;
     btn.classList.toggle("on", on); btn.textContent = on ? "★" : "☆";
-    if (settings.tab === "sfx") { await load(true); }
+    if (settings.tab === "sfx") await load(true);
     return;
+  }
+  if (act === "new-tile" || act === "tile-from-search") {
+    const q = act === "tile-from-search" ? $("#q").value.trim() : "";
+    const r = await post("/api/tile", { action: "create", label: q || t("Nouvelle tuile"), query: q, search: !!q && epidemicOn });
+    if (!r.ok) return toast(t("Erreur : {error}", { error: r.error }));
+    family = r.tile.id; $("#q").value = ""; shown = PAGE;
+    await reload();
+    if (!q) { const inp = $('.tile-edit [data-field="label"]'); if (inp) { inp.focus(); inp.select(); } }
+    return;
+  }
+  if (act === "tile-search") {
+    btn.disabled = true; btn.textContent = t("Recherche…");
+    const r = await post("/api/tile", { action: "search", id: family });
+    if (!r.ok) toast(t("Epidemic : {error}", { error: r.error }));
+    else if (!(r.tile.epi || []).length) toast(t("Rien trouvé sur Epidemic."));
+    return reload();
+  }
+  if (act === "tile-delete") {
+    const x = tileOf(family);
+    if (!x || !confirm(t("Supprimer la tuile « {name} » ? Les sons eux-mêmes ne sont pas touchés.", { name: t(x.label) }))) return;
+    await post("/api/tile", { action: "delete", id: x.id });
+    family = ""; return reload();
   }
   if (act === "play" && row) return play(row.dataset.id);
   if (act === "play-next" && tile) return play(next[tile.dataset.family]);
@@ -520,11 +585,23 @@ document.addEventListener("click", async (e) => {
   if (row && !btn && settings.tab === "sfx" && settings.random === false) {
     const it = byId[row.dataset.id];
     if (it.source === "epidemic") return;
-    next[it.family] = (await post("/api/choose", { family: it.family, id: it.id })).next;
+    next[family] = (await post("/api/choose", { family, id: it.id })).next;
     renderTiles(); markCurrent();
   }
 });
-function markCurrent() { $$(".row").forEach((r) => { const it = byId[r.dataset.id]; r.classList.toggle("cur", !!it && next[it.family] === it.id); }); }
+function markCurrent() { $$(".row").forEach((r) => r.classList.toggle("cur", settings.tab === "sfx" && next[family] === r.dataset.id)); }
+
+// a tile's name and words: saved when the field is left (Enter too); new words search Epidemic again
+document.addEventListener("change", async (e) => {
+  const f = e.target.closest(".tile-edit [data-field]");
+  if (!f) return;
+  const id = f.closest(".tile-edit").dataset.tile, field = f.dataset.field, value = f.value.trim();
+  const r = await post("/api/tile", { action: "update", id, [field]: value });
+  if (!r.ok) return toast(t("Erreur : {error}", { error: r.error }));
+  if (field === "query" && value && epidemicOn) await post("/api/tile", { action: "search", id });
+  reload();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.closest(".tile-edit [data-field]")) e.target.blur(); });
 
 // --- drag into Premiere: only inside the Autocut window, which gives the page a native file drag ---
 let down = null, justDragged = false;

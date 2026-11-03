@@ -379,13 +379,19 @@ analysis. Three tabs, one per layer: **Bruitages**, **Ambiances**, **Musiques**,
 automatic path (your folders, Epidemic, the built-in bank; the switches on the Sons page apply). Anything on
 it is dragged straight into Premiere's timeline (a file drag, like one from Explorer).
 
-- **Bruitages**: a tile per family — Whoosh, Clic, Pop, Clavier, Impact, Montée (risers), Autres. Dragging a
-  tile gives the take it shows, then the next one: with *Prise au hasard*, drawn from the takes starred in the
-  family (else the short ones: whoosh ≤ 6 s, click ≤ 2 s, pop ≤ 3 s, hit ≤ 6 s), every take once before any
+- **Bruitages**: tiles that are your own playlists. Each has a name (in your language), English search words
+  (Epidemic names its sounds in English) and the takes you star in it. The board starts with Whoosh, Clic, Pop,
+  Clavier, Impact, Montée (search words whoosh swish, click, pop, typing keyboard, impact hit, riser), filled with
+  your files sorted by name and the built-in bank; rename, change or delete any of them. **+ Nouvelle tuile**, or
+  filter a word and **+ Tuile « … »**: a tile holding your files whose names have its words and its Epidemic
+  results (**Chercher sur Epidemic**). ★ adds a take to the selected tile, from any search. Dragging a tile gives
+  the take it shows, then the next one: with *Prise au hasard*, drawn from its starred takes (else its short
+  files: whoosh ≤ 6 s, click ≤ 2 s, pop ≤ 3 s, hit ≤ 6 s; else its Epidemic results), every take once before any
   repeats, never twice in a row; ⟳ draws another, ▶ plays it, so what you hear is what you drag. Without
   *Prise au hasard*, click a row: the tile gives that take every time. A bank sound is rendered anew for every
   drag (never twice the same take). The white line on a waveform is where the sound hits: drop it that much
-  before the frame (a whoosh peaks in its middle).
+  before the frame (a whoosh peaks in its middle). Tiles are kept in `%APPDATA%\autocut\board.json`, for every
+  project.
 - **Ambiances** and **Musiques**: lists with waveforms (click one to listen from there), ★, and a filter on
   names, artists and tags. Music shows its artist and stems (`ES_<title> STEMS BASS`).
 - **Pour le script** (Ambiances and Musiques, on request only — nothing is placed): write a brief (« analog synths,

@@ -77,5 +77,20 @@
  "pas de script": "no script",
  "aucune IA connectée : page IA de la fenêtre Autocut": "no AI connected: AI page of the Autocut window",
  "script vide": "empty script",
- "l'IA n'a rien proposé": "the AI suggested nothing"
+ "l'IA n'a rien proposé": "the AI suggested nothing",
+ "aucune : cliquez pour chercher": "none: click to search",
+ "Une tuile à vous : un nom, des mots de recherche, les sons que vous étoilez": "A tile of your own: a name, search words, the sounds you star",
+ "Nouvelle tuile": "New tile",
+ "Nom de la tuile": "Tile name",
+ "Mots de recherche (en anglais : les sons d'Epidemic sont nommés en anglais)": "Search words (in English: Epidemic names its sounds in English)",
+ "ex. : riser, glitch, paper slide, camera shutter": "e.g. riser, glitch, paper slide, camera shutter",
+ "Chercher sur Epidemic": "Search Epidemic",
+ "Supprimer la tuile": "Delete the tile",
+ "★ : les prises que la tuile « {name} » tire au hasard": "★: the takes the « {name} » tile draws from",
+ "Résultats pour « {q} »": "Results for « {q} »",
+ "+ Tuile « {q} »": "+ Tile « {q} »",
+ "Rien dans cette tuile : écrivez des mots de recherche en anglais, puis « Chercher sur Epidemic » ; ou filtrez vos sons en haut et étoilez-les.": "Nothing in this tile: write search words in English, then « Search Epidemic »; or filter your sounds at the top and star them.",
+ "Rien dans cette tuile : filtrez vos sons en haut et étoilez-les.": "Nothing in this tile: filter your sounds at the top and star them.",
+ "Dans la tuile sélectionnée": "In the selected tile",
+ "Supprimer la tuile « {name} » ? Les sons eux-mêmes ne sont pas touchés.": "Delete the « {name} » tile? The sounds themselves are not touched."
 }

@@ -108,14 +108,15 @@ def test_tile_draws_every_take_before_repeating(board):
 def test_stars_restrict_the_draw_and_persist(board, tmp_path):
     board.catalog()
     pool = board._pool("whoosh")
-    board.set({"star": pool[0], "on": True})
-    board.set({"star": pool[2], "on": True})
+    board.pick("whoosh", pool[0], True)
+    board.pick("whoosh", pool[2], True)
     draws = set()
     for _ in range(8):
         draws.add(board.skip("whoosh"))
     assert draws == {pool[0], pool[2]}
-    assert json.loads((tmp_path / "board.json").read_text(encoding="utf-8"))["stars"] == [pool[0], pool[2]]
-    board.set({"star": pool[0], "on": False})
+    saved = json.loads((tmp_path / "board.json").read_text(encoding="utf-8"))
+    assert next(t for t in saved["tiles"] if t["id"] == "whoosh")["picks"] == [pool[0], pool[2]]
+    board.pick("whoosh", pool[0], False)
     assert board.skip("whoosh") == pool[2]
 
 
@@ -124,7 +125,7 @@ def test_long_takes_stay_out_of_the_draw_unless_starred(board, tmp_path):
     board.catalog()
     long_id = next(i for i, it in board.items.items() if it["name"] == "Whoosh long flames")
     assert long_id not in board._pool("whoosh") and len(board._pool("whoosh")) == 4
-    board.set({"star": long_id, "on": True})
+    board.pick("whoosh", long_id, True)
     assert board._pool("whoosh") == [long_id]
 
 
@@ -143,3 +144,51 @@ def test_waves_and_allowed(board, tmp_path):
     assert len(w[ids[0]]["wave"]) == 160
     assert board.allowed(Path(c["items"][0]["path"]))
     assert not board.allowed(tmp_path / "elsewhere.wav")
+
+
+def test_starting_tiles_and_old_stars(tmp_path, monkeypatch):
+    """A new board starts with the six tiles; stars given to sound effects before tiles existed join them."""
+    settings = tmp_path / "board.json"
+    monkeypatch.setattr(B, "SETTINGS", settings)
+    monkeypatch.setattr(B.L, "earshot_ok", lambda: False)
+    lib = tmp_path / "lib"
+    star = write_wav(lib / "sfx" / "Whoosh 9.wav", 0.5)
+    settings.write_text(json.dumps({"stars": [f"file:{star}", "file:elsewhere.wav"]}), encoding="utf-8")
+    b = B.Board(lambda: [str(lib)], lambda: tmp_path / "media")
+    b.index = B.Index(tmp_path / "index.json")
+    assert [t["label"] for t in b.settings["tiles"]] == ["Whoosh", "Clic", "Pop", "Clavier", "Impact", "Montée"]
+    assert b.tile("riser")["query"] == "riser"                 # Epidemic is searched in English
+    b.catalog()
+    assert b.tile("whoosh")["picks"] == [f"file:{star}"] and b.settings["stars"] == ["file:elsewhere.wav"]
+
+
+class FakeEpi:
+    def search(self, term, kind, n=12, max_ms=6000, min_ms=None):
+        from autocut.sfx.library import Snd
+        self.term = term
+        return [Snd(f"epidemic:{term}-{i}", "epidemic", kind, f"{term} {i}", dur=1.0) for i in range(3)]
+
+
+def test_a_search_becomes_a_tile(board, tmp_path):
+    write_wav(tmp_path / "lib" / "sfx" / "ES_Paper Slide, Movement.wav", 0.7)
+    write_wav(tmp_path / "lib" / "sfx" / "Paper Crumple Big.wav", 0.9)
+    board.catalog()
+    t = board.create_tile("Papier", "paper")
+    assert t["id"] == "u-papier" and board.create_tile("Papier", "paper")["id"] == "u-papier-2"
+    assert len(board.members(t)) == 2                          # the files whose names have its words
+    epi = FakeEpi()
+    board._epi = epi
+    board.search_tile("u-papier")
+    assert epi.term == "paper"
+    c = board.catalog()
+    assert len(c["members"]["u-papier"]) == 5 and c["next"]["u-papier"] in c["members"]["u-papier"]
+    local = [i for i in c["members"]["u-papier"] if i.startswith("file:")]
+    assert set(board._pool("u-papier")) == set(local)           # random draws: own files before downloads
+    board.pick("u-papier", "epidemic:paper-1", True)
+    assert board._pool("u-papier") == ["epidemic:paper-1"]
+    board.update_tile("u-papier", {"label": "Papiers", "query": "paper rustle"})
+    assert board.tile("u-papier")["label"] == "Papiers"
+    board.delete_tile("u-papier")
+    assert board.tile("u-papier") is None and "u-papier" not in board.catalog()["next"]
+    saved = json.loads((tmp_path / "board.json").read_text(encoding="utf-8"))
+    assert [t["id"] for t in saved["tiles"]] == ["whoosh", "click", "pop", "typing", "hit", "riser", "u-papier-2"]

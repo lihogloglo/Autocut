@@ -5,8 +5,11 @@ Epidemic / Artlist / Envato downloads, packs), the built-in bank (earshot) and E
 preview free, download with the subscription). Anything on the board is dragged straight into Premiere's
 timeline: a real file drag, like one from Explorer (sourcing/drag.py).
 
-A family tile (Whoosh, Clic, Pop…) gives a different take on every drag: drawn from the takes starred in
-the family (all of them when none is), every take once before any repeats, never twice in a row. The tile
+The sound-effect tiles are the user's own playlists: a name in their language, English search words (Epidemic
+names its sounds in English) and the takes starred in it. The board starts with Whoosh, Clic, Pop, Clavier,
+Impact, Montée (sorted from file names, plus the bank); any search can become a tile. A tile gives a different
+take on every drag: drawn from its starred takes (else its short ones), every take once before any repeats,
+never twice in a row. The tile
 shows the take that comes next, so what you hear is what you drag. A built-in bank sound is rendered
 anew for every drag: never twice the same take.
 
@@ -39,7 +42,10 @@ SETTINGS = Path(os.environ.get("APPDATA", Path.home())) / "autocut" / "board.jso
 INDEX = L.CACHE / "board-index.json"
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
-FAMILIES = (*L.KINDS, "riser", "other")      # the board also sorts risers (the automatic path does not place them)
+FAMILIES = (*L.KINDS, "riser", "other")      # how files are sorted (the automatic path does not place risers)
+# the tiles a new board starts with: label (French, translated on the page), English search words, the sort it reads
+DEFAULT_TILES = [("whoosh", "Whoosh", "whoosh swish"), ("click", "Clic", "click"), ("pop", "Pop", "pop"),
+                 ("typing", "Clavier", "typing keyboard"), ("hit", "Impact", "impact hit"), ("riser", "Montée", "riser")]
 RISER = re.compile(r"riser|\brise\b|\brising\b|uplifter|build ?up|\bswell|tension|crescendo|\breverse")
 LAYERS = ("sfx", "amb", "music")
 AMB = re.compile(r"ambien|ambiance|atmos|room ?tone|roomtone|background|\bbg\b|walla|crowd|foule|\brain\b|pluie|"
@@ -339,13 +345,17 @@ class Board:
         self.settings = self._load()
         self.window = None
 
-    # settings: stars and the random switch, for every project (a kit is the user's, not the video's)
+    # settings: the tiles, stars and the random switch, for every project (a kit is the user's, not the video's)
     def _load(self) -> dict:
         s = {"stars": [], "random": True, "tab": "sfx"}
         try:
             s.update(json.loads(SETTINGS.read_text(encoding="utf-8")))
         except (OSError, ValueError):
             pass
+        if "tiles" not in s:
+            s["tiles"] = [{"id": k, "label": label, "query": q, "kind": k, "picks": [], "epi": []}
+                          for k, label, q in DEFAULT_TILES]
+            s["migrate_stars"] = True             # stars given before tiles existed join their tile (catalog)
         return s
 
     def _store(self) -> None:
@@ -354,18 +364,97 @@ class Board:
         tmp.write_text(json.dumps(self.settings, ensure_ascii=False, indent=1), encoding="utf-8")
         tmp.replace(SETTINGS)
 
+    def tile(self, tid: str) -> dict | None:
+        return next((t for t in self.settings["tiles"] if t["id"] == tid), None)
+
     def set(self, fields: dict) -> dict:
         with self.lock:
             for k in ("random", "tab"):
                 if k in fields:
                     self.settings[k] = fields[k]
-            if "star" in fields:
+            if "star" in fields:                  # ambiences and music: one list of favourites
                 stars = [s for s in self.settings["stars"] if s != fields["star"]]
                 if fields.get("on"):
                     stars.append(fields["star"])
                 self.settings["stars"] = stars
             self._store()
         return self.settings
+
+    # the tiles (sound-effect playlists)
+    def pick(self, tid: str, item_id: str, on: bool) -> dict:
+        """★ in a tile: the take joins (or leaves) the tile's playlist."""
+        with self.lock:
+            t = self.tile(tid)
+            t["picks"] = [i for i in t["picks"] if i != item_id] + ([item_id] if on else [])
+            self.next.pop(tid, None)
+            self._store()
+        return t
+
+    def create_tile(self, label: str, query: str) -> dict:
+        import re as _re
+        label = (label or query or "").strip()[:40] or "?"
+        base = _re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-") or "tuile"
+        tid, n = f"u-{base}", 2
+        while self.tile(tid):
+            tid, n = f"u-{base}-{n}", n + 1
+        t = {"id": tid, "label": label, "query": (query or label).strip()[:80], "kind": "", "picks": [], "epi": []}
+        with self.lock:
+            self.settings["tiles"].append(t)
+            self._store()
+        return t
+
+    def update_tile(self, tid: str, fields: dict) -> dict:
+        with self.lock:
+            t = self.tile(tid)
+            if "label" in fields and fields["label"].strip():
+                t["label"] = fields["label"].strip()[:40]
+            if "query" in fields:
+                t["query"] = fields["query"].strip()[:80]
+            self.next.pop(tid, None)
+            self._store()
+        return t
+
+    def delete_tile(self, tid: str) -> None:
+        with self.lock:
+            self.settings["tiles"] = [t for t in self.settings["tiles"] if t["id"] != tid]
+            self.next.pop(tid, None)
+            self._store()
+
+    def search_tile(self, tid: str) -> dict:
+        """The tile's English words on Epidemic: its results stay in the tile, to hear and star."""
+        from .suggest import sfx_item
+        t = self.tile(tid)
+        kind = t.get("kind") or "other"
+        found = [sfx_item(x, "sfx", kind) for x in self.epidemic().search(t["query"] or t["label"], kind, n=30,
+                                                                        max_ms=12000)]
+        self._found(found)
+        with self.lock:
+            t["epi"] = found
+            self._store()
+        return t
+
+    def members(self, t: dict) -> list[str]:
+        """What a tile holds: its starred takes, then the files of its sort (a starting tile) or whose names
+        have its words, then its Epidemic results."""
+        if t.get("kind"):
+            mine = [i for i, it in self.items.items() if it["layer"] == "sfx" and it["family"] == t["kind"]]
+        else:
+            words = [w for w in (t.get("query") or t["label"]).lower().split() if w]
+            mine = [i for i, it in self.items.items() if it["layer"] == "sfx" and words
+                    and all(w in f"{it['title']} {it['name']}".lower() for w in words)]
+        out = list(dict.fromkeys([*t["picks"], *sorted(mine), *(e["id"] for e in t.get("epi", []))]))
+        return [i for i in out if i in self.items or i in self.found]
+
+    def _migrate_stars(self) -> None:
+        if not self.settings.pop("migrate_stars", False):
+            return
+        for sid in list(self.settings["stars"]):
+            it = self.items.get(sid)
+            t = it and it["layer"] == "sfx" and self.tile(it["family"])
+            if t:
+                t["picks"].append(sid)
+                self.settings["stars"].remove(sid)
+        self._store()
 
     def _warm(self) -> None:
         """The bank's first render takes seconds (imports): done while the page draws the user's own sounds."""
@@ -395,24 +484,35 @@ class Board:
                                  "licence": s.licence, "where": ""})
         with self.lock:
             self.items = {r["id"]: r for r in rows}
-            for f in FAMILIES:
-                if self.next.get(f) not in self.items:
-                    self.next.pop(f, None)
+            for t in self.settings["tiles"]:
+                self._found(t.get("epi", []), lock=False)
+            self._migrate_stars()
+            for tid in list(self.next):
+                if self.next[tid] not in self.items and self.next[tid] not in self.found:
+                    self.next.pop(tid, None)
         ctx = self.context() or {}
-        return {"items": rows, "settings": self.settings, "next": {f: self.peek(f) for f in FAMILIES},
+        tiles = self.settings["tiles"]
+        return {"items": rows, "settings": self.settings, "next": {t["id"]: self.peek(t["id"]) for t in tiles},
+                "members": {t["id"]: self.members(t) for t in tiles},
                 "epidemic": on("epidemic") and bool(L.epidemic_key()), "media": str(media), "roots": [str(r) for r in roots],
                 "script": Path(ctx["script"]).name if ctx.get("script") else "", "suggestions": self.suggestions()}
 
     # random takes
     def _pool(self, family: str) -> list[str]:
-        """The takes a tile draws from: the starred ones, else the short ones (a long take is dragged by
-        its own row, or starred on purpose)."""
-        ids = [i for i, it in self.items.items() if it["layer"] == "sfx" and it["family"] == family]
-        stars = set(self.settings["stars"])
-        starred = [i for i in ids if i in stars]
-        cap = RANDOM_MAX.get(family, 1e9)
-        short = [i for i in ids if (self.items[i].get("dur") or 0) <= cap]
-        return sorted(starred or short or ids)
+        """The takes a tile draws from: its starred ones, else its short files and bank sounds (a long take
+        is dragged by its own row, or starred on purpose), else its Epidemic results."""
+        t = self.tile(family)
+        if not t:
+            return []
+        known = lambda i: i in self.items or i in self.found         # noqa: E731
+        picks = [i for i in t["picks"] if known(i)]
+        if picks:
+            return sorted(picks)
+        ids = self.members(t)
+        local = [i for i in ids if i in self.items]
+        cap = RANDOM_MAX.get(t.get("kind") or "", 1e9)
+        short = [i for i in local if (self.items[i].get("dur") or 0) <= cap]
+        return sorted(short or local or ids)
 
     def _draw(self, family: str) -> str | None:
         pool = self._pool(family)
@@ -536,15 +636,20 @@ class Board:
         return out
 
     # Epidemic search
-    def _found(self, rows: list[dict]) -> list[dict]:
+    def _found(self, rows: list[dict], lock: bool = True) -> list[dict]:
+        if not lock:
+            self.found.update({r["id"]: r for r in rows})
+            return rows
         with self.lock:
             self.found.update({r["id"]: r for r in rows})
         return rows
 
     def search(self, layer: str, term: str, family: str = "") -> list[dict]:
         from .suggest import music_item, sfx_item
-        term = (term or "").strip() or {"sfx": L.EPIDEMIC_QUERIES.get(family, "whoosh"), "amb": "ambience",
+        t = self.tile(family) if family else None
+        term = (term or "").strip() or {"sfx": (t and (t["query"] or t["label"])) or "whoosh", "amb": "ambience",
                                         "music": "documentary"}[layer]
+        family = (t and t.get("kind")) or ("other" if t else family)
         if layer == "music":
             return self._found([music_item(r) for r in self.epidemic().search_music(term)])
         amb = layer == "amb"
@@ -733,6 +838,24 @@ def serve(board: Board):
                 if self.path == "/api/search":
                     return self._json({"ok": True, "found": board.search(data.get("layer", "sfx"), data.get("q", ""),
                                                                          data.get("family", ""))})
+                if self.path == "/api/tile":             # create, update, delete, star in, search Epidemic
+                    act = data.get("action")
+                    if act == "create":
+                        t = board.create_tile(data.get("label", ""), data.get("query", ""))
+                        if data.get("search") and L.epidemic_key():
+                            t = board.search_tile(t["id"])
+                    elif act == "update":
+                        t = board.update_tile(data["id"], data)
+                    elif act == "delete":
+                        board.delete_tile(data["id"])
+                        t = None
+                    elif act == "pick":
+                        t = board.pick(data["id"], data["item"], bool(data.get("on")))
+                    elif act == "search":
+                        t = board.search_tile(data["id"])
+                    else:
+                        return self.send_error(400)
+                    return self._json({"ok": True, "tile": t})
                 if self.path == "/api/similar":
                     return self._json({"ok": True, "found": board.similar(data["id"])})
                 if self.path == "/api/suggest":           # the AI reads the script: up to a minute or two
