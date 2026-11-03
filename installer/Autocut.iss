@@ -41,6 +41,9 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 CloseApplications=no
+; uv reaches its Python through a directory junction (cpython-3.12-…-none). Setup's junction mitigation is
+; inherited by uv and refuses it (error 448). It protects elevated installers; this one runs as the user.
+RedirectionGuard=no
 
 [Languages]
 Name: "fr"; MessagesFile: "compiler:Languages\French.isl"

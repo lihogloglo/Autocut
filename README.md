@@ -57,7 +57,7 @@ flowchart LR
 2. In the window, open **Installation** (bottom left) and install what is missing — ffmpeg, the speech model, the Premiere panel. One click each.
 3. Open **IA** and connect an AI.
 
-To update: **Installation › Autocut › Update** (it closes, updates and reopens). To uninstall: Windows Settings › Apps › Autocut; your settings and downloaded models stay in `%APPDATA%\autocut` and `%LOCALAPPDATA%\autocut`.
+To update: **Installation › Autocut › Update** (it closes, updates and reopens). To uninstall: Windows Settings › Apps › Autocut (your settings, keys and the downloaded speech model are kept).
 
 From the source instead (to work on the code): `git clone` this repository and double-click `Autocut.bat` (installs uv and the packages, puts a shortcut on the desktop); update with `git pull` and `Autocut.bat` again.
 
