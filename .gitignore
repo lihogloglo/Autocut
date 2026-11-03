@@ -9,3 +9,6 @@ __pycache__/
 *.backup.xml
 *.review.xml
 *.derush.txt
+
+# secrets
+.env
