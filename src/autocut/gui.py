@@ -965,6 +965,33 @@ class Api:
 _MUTEX = None
 
 
+def fresh_page_cache(storage: Path, web: Path = WEB) -> bool:
+    """pywebview serves web/ from a local server on a fixed port, without cache headers: after an update the
+    window would keep showing the old page and scripts from WebView2's cache. When web/ changed since the last
+    start, that cache is emptied (only the cached files: settings and storage stay). True when it was."""
+    import hashlib
+    import shutil
+    h = hashlib.sha1()
+    for f in sorted(web.rglob("*")):
+        if f.is_file():
+            st = f.stat()
+            h.update(f"{f.relative_to(web)}|{st.st_size}|{int(st.st_mtime)}".encode())
+    stamp, now = storage / "web-stamp.txt", h.hexdigest()
+    try:
+        if stamp.read_text(encoding="utf-8").strip() == now:
+            return False
+    except OSError:
+        pass
+    for sub in ("Cache", "Code Cache"):
+        shutil.rmtree(storage / "EBWebView" / "Default" / sub, ignore_errors=True)
+    try:
+        storage.mkdir(parents=True, exist_ok=True)
+        stamp.write_text(now, encoding="utf-8")
+    except OSError:
+        pass
+    return True
+
+
 def _on_loaded(window, api: Api) -> None:
     """Dropped files: WebView2 only gives full paths to a Python-side drop handler."""
     from webview.dom import DOMEventHandler
@@ -1015,6 +1042,7 @@ def main(tab: int = 0) -> None:
     from .sourcing import bridge
     bridge.start(lambda kind="sources": (api._sb_out() if kind == "storyboard" else api._sources_out(),
                                          Path(api._state["derush_out"]) if api._state["derush_out"] else None))
+    fresh_page_cache(APPDATA / "webview")
     webview.start(private_mode=False, storage_path=str(APPDATA / "webview"), icon=str(WEB / "autocut.ico"))
 
 

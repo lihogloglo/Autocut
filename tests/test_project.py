@@ -96,3 +96,25 @@ def test_a_sequence_dropped_on_the_storyboard_gives_its_timings(api, tmp_path: P
     edit = touch(tmp_path / "montage.xml", "<xmeml/>")
     api.add("storyboard", [str(edit)])
     assert api._state["place_xml"] == str(edit) and api._state["xml"] == ""
+
+
+def test_page_cache_is_emptied_only_when_the_interface_changed(tmp_path):
+    """The window's pages come from a local server without cache headers: after an update the old app.js
+    stayed in WebView2's cache until a reload. It is emptied when web/ changed, and only then."""
+    import os
+
+    from autocut.gui import fresh_page_cache
+    web, storage = tmp_path / "web", tmp_path / "webview"
+    web.mkdir()
+    (web / "app.js").write_text("v1", encoding="utf-8")
+    cache = storage / "EBWebView" / "Default" / "Cache"
+    keep = storage / "EBWebView" / "Default" / "Local Storage"
+    for d in (cache, keep):
+        d.mkdir(parents=True)
+        (d / "x").write_text("x", encoding="utf-8")
+    assert fresh_page_cache(storage, web) and not cache.exists() and (keep / "x").exists()
+    cache.mkdir(parents=True)
+    assert not fresh_page_cache(storage, web) and cache.exists()          # same files: the cache stays
+    (web / "app.js").write_text("v2 longer", encoding="utf-8")
+    os.utime(web / "app.js", (2_000_000_000, 2_000_000_000))
+    assert fresh_page_cache(storage, web) and not cache.exists()
