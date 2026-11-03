@@ -63,7 +63,9 @@ def _update() -> dict:
         return {**row, "detail": tr("Version de développement : mettez à jour avec git pull, puis Autocut.bat.")}
     try:
         latest = latest_release()
-    except Exception:
+    except Exception as e:
+        if getattr(getattr(e, "response", None), "status_code", 0) == 404:      # no release published yet
+            return {**row, "detail": tr("À jour.")}
         return {**row, "detail": tr("Impossible de vérifier les mises à jour (pas de connexion ?).")}
     if latest["url"] and _newer(latest["version"], cur):
         return {**row, "ok": False, "detail": tr("La version {version} est disponible.", version=latest["version"]),
