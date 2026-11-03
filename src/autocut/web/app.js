@@ -217,8 +217,14 @@ const app = {
     else if (what === "sfx-src") { const src = { ...(this.view.state.opts.sfx_sources || {}) }; src[arg] = src[arg] === false; await this.set("opts.sfx_sources", src); }
     else if (what === "sfx-key") {
       const input = $("#ep-key"), r = await this.api.set_key("epidemic", input ? input.value : "");
+      if (r.ok) this.epEdit = false;
       if (r.view) this.render(r.view);
       this.toast(r.message);
+    }
+    else if (what === "sfx-key-edit" || what === "sfx-key-cancel") {
+      this.epEdit = what === "sfx-key-edit";
+      this.renderSfx();
+      if (this.epEdit && $("#ep-key")) $("#ep-key").focus();
     }
     else if (what === "proj-forget") { this.render(await this.api.forget_project(arg)); this.menu(true); }
     else if (what === "proj-reveal") { this.menu(false); this.api.open_path(this.view.project.path); }
@@ -544,9 +550,12 @@ const app = {
         `<div class="srcfold">${folders.map((f) => `<span class="chip" title="${esc(f)}"><span>${esc(f)}</span><button class="icon-btn" data-act="sfx-folder-rm" data-arg="${esc(f)}">✕</button></span>`).join("")}
            <button class="btn small" data-act="sfx-folder">${t("Ajouter un dossier…")}</button></div>`) +
       row("epidemic", "Epidemic Sound", keys.epidemic ? t("Connecté avec votre clé ({key}). Les sons choisis sont téléchargés dans le dossier du projet.", { key: keys.epidemic })
+          + (keys.epidemic_src === "env" ? " " + t("(clé lue dans le fichier .env ou l'environnement)") : "")
         : t("Votre abonnement, avec une clé API : epidemicsound.com › Compte › API keys."),
-        keys.epidemic ? "" : `<div class="keyrow inline"><input type="password" id="ep-key" placeholder="${esc(t("Collez la clé"))}" autocomplete="off" spellcheck="false">
-          <button class="btn small" data-act="sfx-key">${t("Enregistrer")}</button></div>`) +
+        keys.epidemic && !this.epEdit
+          ? `<div class="keyrow inline"><button class="btn small" data-act="sfx-key-edit">${t("Changer la clé")}</button></div>`
+          : `<div class="keyrow inline"><input type="password" id="ep-key" placeholder="${esc(keys.epidemic ? t("Nouvelle clé (vide : oublier la clé enregistrée)") : t("Collez la clé"))}" autocomplete="off" spellcheck="false">
+          <button class="btn small" data-act="sfx-key">${t("Enregistrer")}</button>${keys.epidemic ? `<button class="btn small" data-act="sfx-key-cancel">${t("Annuler")}</button>` : ""}</div>`) +
       row("earshot", t("Banque intégrée"), t("Sons fabriqués par code (earshot, libres de droits) : jamais deux fois la même prise."));
     $$("#sfx-density button").forEach((b) => b.classList.toggle("on", +b.dataset.d === (o.sfx_density || 2)));
     $("#go-sfx").disabled = !edit || this.job.running;

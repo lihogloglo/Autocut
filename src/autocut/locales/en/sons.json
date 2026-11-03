@@ -83,5 +83,9 @@
  "Animations dans les clips": "Animations inside the clips",
  "Préparation des sons": "Preparing the sounds",
  "Placement des sons": "Placing the sounds",
- "Voix pour l'éditeur": "Voice for the editor"
+ "Voix pour l'éditeur": "Voice for the editor",
+ "(clé lue dans le fichier .env ou l'environnement)": "(key read from the .env file or the environment)",
+ "Changer la clé": "Change the key",
+ "Nouvelle clé (vide : oublier la clé enregistrée)": "New key (empty: forget the saved key)",
+ "Annuler": "Cancel"
 }

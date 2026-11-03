@@ -311,8 +311,12 @@ class Api:
         """Which API keys are saved, shown masked: the key itself never goes to the page."""
         from .sourcing.llm import gemini_key
         from .sfx.library import epidemic_key
+        from .sourcing.llm import _keys as saved
         mask = lambda k: f"{k[:4]}…{k[-4:]}" if len(k) > 12 else (tr("enregistrée") if k else "")   # noqa: E731
-        return {"gemini": mask(gemini_key()), "epidemic": mask(epidemic_key())}
+        ep = epidemic_key()
+        # where the Epidemic key comes from: saved from the window, or the environment / .env (developers)
+        src = "" if not ep else "saved" if saved().get("epidemic") else "env"
+        return {"gemini": mask(gemini_key()), "epidemic": mask(ep), "epidemic_src": src}
 
     def _sequences(self) -> list[str]:
         if not self._state["xml"]:
