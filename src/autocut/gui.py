@@ -4,6 +4,8 @@
 2. Derush        a Premiere sequence (raw or half derushed)   -> <title>.autocut.xml
 3. Illustrations script links -> contact sheet -> files, credits and B-roll placed on the derush/edit
 4. Storyboard     a style in words -> a beat-by-beat storyboard (what to make), cards placed on the edit
+5. Sons           automatic: sounds on what moves in the finished edit (editor page, XML); by hand: the sound board
+                  (sound effects, ambiences, music dragged into Premiere)
    IA             which AI engine every step uses (API keys, or the user's subscriptions through their CLIs)
 
 The page is HTML (web/) in a native window (pywebview on WebView2). Steps run as subprocesses of
@@ -460,6 +462,57 @@ class Api:
         def closed():
             self._sfx_window = None
         self._sfx_window.events.closed += closed
+        return {"ok": True}
+
+    def _board_media(self) -> Path:
+        """Where the sound board puts Epidemic downloads and bank takes: the project's sounds, else the cache."""
+        out = self._sfx_out()
+        if out:
+            return out / "médias"
+        from .sfx.library import CACHE
+        return CACHE / "planche"
+
+    def _board_context(self) -> dict:
+        """What the board's « for the script » suggestions need: the script, the sequences that time its
+        sentences (the edit the sounds go on, else the illustrations' one, and the derush), the AI engine."""
+        s, o = self._state, self._state["opts"]
+        out = self._sfx_out()
+        edit = self._sfx_edit()
+        derush = s["derush_out"] or (edit if edit.lower().endswith(".autocut.xml") else "")
+        if edit.lower().endswith(".autocut.xml"):
+            edit = ""
+        return {"script": s["script"], "derush": derush, "edit": edit, "engine": o.get("llm", "auto"),
+                "quality": o.get("quality", "best"), "out": str(out) if out else ""}
+
+    def open_board(self) -> dict:
+        """The sound board in its own Autocut window: sound effects, ambiences and music to drag into
+        Premiere. Needs no analysis: only the sound folders (and Epidemic, the bank)."""
+        import webview
+
+        from .sfx.board import Board, BoardApi, serve
+        win = getattr(self, "_board_window", None)
+        if win is not None:
+            try:
+                win.restore()
+                win.show()
+                win.evaluate_js("load(true)")
+                return {"ok": True}
+            except Exception:
+                self._board_window = None
+        opts = lambda: self._state["opts"]      # noqa: E731  (read at each use: settings change while it is open)
+        board = Board(lambda: opts().get("sfx_folders") or [], self._board_media, lambda: opts().get("sfx_sources") or {},
+                      self._board_context)
+        if getattr(self, "_board_server", None):
+            self._board_server.shutdown()
+        self._board_server, url = serve(board)
+        win = webview.create_window(tr("Planche sonore"), url, js_api=BoardApi(board), width=1180, height=860,
+                                    min_size=(640, 420))
+        board.window = win
+        self._board_window = win
+
+        def closed():
+            self._board_window = None
+        win.events.closed += closed
         return {"ok": True}
 
     def sfx_folder(self, folder: str = "", remove: bool = False) -> dict:
@@ -949,6 +1002,7 @@ def main(tab: int = 0) -> None:
     window.events.closing += lambda: api._job.stop()
     window.events.closed += lambda: api._sheet_window and api._sheet_window[0].destroy()
     window.events.closed += lambda: getattr(api, "_sfx_window", None) and api._sfx_window.destroy()
+    window.events.closed += lambda: getattr(api, "_board_window", None) and api._board_window.destroy()
     from .sourcing import bridge
     bridge.start(lambda kind="sources": (api._sb_out() if kind == "storyboard" else api._sources_out(),
                                          Path(api._state["derush_out"]) if api._state["derush_out"] else None))

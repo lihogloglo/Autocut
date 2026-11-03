@@ -381,6 +381,10 @@ body.dragging .veil { opacity: 1; }
 .seg button { border: 0; background: transparent; padding: 6px 14px; cursor: pointer; font: inherit; color: var(--text); }
 .seg button.on { background: var(--accent); color: #fff; }
 .dens { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.pipeline.two { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.pipeline.two .sfx-edit { margin-top: 4px; }
+.pipeline.two .dens { margin-top: 2px; }
+.pbtns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .srcfold { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .srcfold .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--surface-2); border-radius: 99px; padding: 2px 4px 2px 10px; font-size: 12.5px; max-width: 100%; }
 .srcfold .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }

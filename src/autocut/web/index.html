@@ -172,16 +172,27 @@
     <section class="page" id="page-sfx">
       <header>
         <h1>Sons</h1>
-        <p class="lead">Whooshes, clics, pops et clavier sur tout ce qui bouge à l'écran, avec des prises qui varient. Vous écoutez et ajustez chaque son, puis ils vont dans Premiere sur leurs propres pistes.</p>
+        <p class="lead">Bruitages, ambiances et musiques, par deux chemins : posés automatiquement sur ce qui bouge dans votre montage, ou glissés à la main depuis la planche sonore.</p>
       </header>
-      <div class="pslot sfx-edit" id="sfx-edit" data-zone="sfx"></div>
       <h3 class="sub-h">Sources</h3>
       <ul class="checks" id="sfx-srcs" data-zone="sfx-src"></ul>
-      <div class="row-opts dens"><span class="muted">Densité</span>
-        <div class="seg" id="sfx-density"><button data-d="1">Léger</button><button data-d="2">Normal</button><button data-d="3">Dense</button></div></div>
-      <div class="actions">
-        <button class="btn primary big" data-run="sfx" id="go-sfx">Analyser le montage</button>
-        <button class="btn big" id="open-sfx">Ouvrir l'éditeur</button>
+      <div class="pipeline two">
+        <div class="pstep" id="p-sfx-auto">
+          <div class="ptop"><span class="pnum">A</span><b>Automatique</b></div>
+          <p>Whooshes, clics, pops et clavier sur tout ce qui bouge à l'écran, avec des prises qui varient. Vous écoutez et ajustez chaque son, puis ils vont dans Premiere sur leurs propres pistes.</p>
+          <div class="pslot sfx-edit" id="sfx-edit" data-zone="sfx"></div>
+          <div class="row-opts dens"><span class="muted">Densité</span>
+            <div class="seg" id="sfx-density"><button data-d="1">Léger</button><button data-d="2">Normal</button><button data-d="3">Dense</button></div></div>
+          <div class="pbtns">
+            <button class="btn primary" data-run="sfx" id="go-sfx">Analyser le montage</button>
+            <button class="btn" id="open-sfx">Ouvrir l'éditeur</button>
+          </div>
+        </div>
+        <div class="pstep" id="p-sfx-board">
+          <div class="ptop"><span class="pnum">B</span><b>À la main</b></div>
+          <p>La planche sonore : vos bruitages, ambiances et musiques (et Epidemic) à écouter et glisser dans la timeline de Premiere. Une tuile « Whoosh » donne une prise différente à chaque glisser, parmi celles que vous avez étoilées.</p>
+          <div class="pbtns"><button class="btn primary" id="open-board">Ouvrir la planche sonore</button></div>
+        </div>
       </div>
       <div class="result" id="res-sfx"></div>
     </section>

@@ -135,6 +135,7 @@ const app = {
       this.toast(r.ok ? t("Storyboard ouvert dans le navigateur.") : r.message);
     });
     $("#open-sfx").addEventListener("click", async () => { const r = await this.api.open_sfx(); if (!r.ok) this.toast(r.message); });
+    $("#open-board").addEventListener("click", async () => { const r = await this.api.open_board(); if (!r.ok) this.toast(r.message); });
     $$("#sfx-density button").forEach((b) => b.addEventListener("click", () => this.set("opts.sfx_density", +b.dataset.d)));
     $("#ai-recheck").addEventListener("click", () => { $("#ai-list").innerHTML = `<li class="muted">${esc(t("Vérification…"))}</li>`; this.api.ai_check(); });
     $("#ai-engine").innerHTML = ENGINE_CHOICES.map(([v, l]) => `<option value="${v}">${esc(t(l))}</option>`).join("");

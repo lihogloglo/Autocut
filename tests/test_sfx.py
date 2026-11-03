@@ -104,7 +104,7 @@ def test_a_whoosh_peaks_just_after_the_frame_and_a_click_lands_on_it():
     assert c.start == pytest.approx(10.04 - 0.3) and c.src_in == 0
     k = fit(Cue(2, 0.005, "click", "appear.element", {"strength": 0.7}, {}), snd(2, sync=0.02), s)
     assert k.start == 0 and k.src_in == pytest.approx(0.015)       # trimmed rather than before the start
-    assert k.gain_db == pytest.approx(-19.0 + 6.0)                 # target peak -19 dBFS from a -6 dB file
+    assert k.gain_db == pytest.approx(-17.0 + 6.0)                 # target peak -17 dBFS from a -6 dB file
 
 
 def test_density_keeps_the_big_moments_and_spaces_sounds():
@@ -172,3 +172,14 @@ def test_the_page_replans_without_losing_hand_edits(tmp_path: Path):
     kept = next(c for c in st["cues"] if c["id"] == cues[0].id)
     assert kept["t"] == pytest.approx(1.08) and kept["gain_db"] == -3
     assert not any(abs(c["t"] - 1.0) < 1e-6 for c in st["cues"])   # no second sound where it was
+
+
+def test_levels_stay_in_the_editors_range_whatever_the_mastering():
+    """From the user's finished edit: Swish Spin (peak -6.8) at -5/-10, Switch Click 2 (-2.0) at -15, the quiet
+    Swish 3 (-16.4) still at -10/-5, Typing (-0.4) at -15. Never louder than -5, never under -20."""
+    from autocut.sfx.plan import sfx_gain
+    assert -10 <= sfx_gain("whoosh", -6.8) <= -5
+    assert -17 <= sfx_gain("click", -2.0) <= -13
+    assert sfx_gain("whoosh", -16.4) == -5.0
+    assert -17 <= sfx_gain("typing", -0.4) <= -13
+    assert sfx_gain("hit", 3.0) >= -20.0

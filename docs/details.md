@@ -17,6 +17,7 @@ there is no NVIDIA card — much slower).
 | Illustrations: place, from Premiere | picks + the sequence open in Premiere ([panel](#premiere-panel)) | B-roll straight into the sequence | one click after each re-edit, no XML |
 | Storyboard | script + a style in words (+ reference images) | a beat-by-beat storyboard: what to make, prompts, scenes; cards placed on the edit | yes: durations estimated without a derush |
 | Sounds | a finished edit (FCP7 XML) + sound sources | whooshes, clicks, pops, typing on what moves on screen, on their own tracks | yes: any edit exported from Premiere |
+| Sounds, by hand | sound sources | the sound board: sound effects, ambiences, music dragged into Premiere | yes: nothing else needed |
 
 The link between steps is the `Sxxx` sentence number: part 1 writes it in a marker over
 every take, part 2 files every illustration under it.
@@ -343,8 +344,9 @@ Moments where the edit already has a sound are left alone. On the test edit, *No
 — rotating in shuffled rounds (every take before any repeats, never the same twice in a row), each level varied by
 ±1.5 dB. Each take is measured once: its **sync point** (the attack for clicks, pops, keys and hits, the loudest
 moment for a whoosh) lands on the frame — a whoosh peaks 40 ms after it. Levels aim at a peak per kind (whoosh −15 dBFS,
-pop −17, click −19, typing −21, hit −13), a little louder for bigger changes, 4 dB lower for exits; Premiere caps clip
-gain at +6 dB.
+pop −17, click −17, typing −15, hit −13), a little louder for bigger changes, 4 dB lower for exits, and the clip gain
+always stays between −20 and −5 dB, as in the test edit's hand-set sounds (a quiet whoosh still gets −5, never +1);
+the page's volume slider moves everything from there.
 
 **Sources** (`sfx/library.py`):
 - **Your folders**: every sound file whose name says its kind (whoosh / swish / swipe…, click / switch / tick…,
@@ -364,6 +366,50 @@ take with the waveform, ◀ ▶ other takes (A / Z), *En contexte* (voice 1.5 s 
 kind, level, ±1 frame, remove; search your folders, the bank and Epidemic for another sound (Epidemic previews play
 before download). Drag a sound to move it, double-click a row to add one. Changing density, volume or rules plans
 again at once from `events.json` and `pools.json`, keeping every sound touched by hand.
+
+### The sound board (by hand)
+
+The **Sons** page has two paths, like the illustrations (Placer, or a card dragged from the planche): the
+automatic one above, and **Ouvrir la planche sonore** (`sfx/board.py` + `web/board.html`), which needs no
+analysis. Three tabs, one per layer: **Bruitages**, **Ambiances**, **Musiques**, from the same sources as the
+automatic path (your folders, Epidemic, the built-in bank; the switches on the Sons page apply). Anything on
+it is dragged straight into Premiere's timeline (a file drag, like one from Explorer).
+
+- **Bruitages**: a tile per family — Whoosh, Clic, Pop, Clavier, Impact, Montée (risers), Autres. Dragging a
+  tile gives the take it shows, then the next one: with *Prise au hasard*, drawn from the takes starred in the
+  family (else the short ones: whoosh ≤ 6 s, click ≤ 2 s, pop ≤ 3 s, hit ≤ 6 s), every take once before any
+  repeats, never twice in a row; ⟳ draws another, ▶ plays it, so what you hear is what you drag. Without
+  *Prise au hasard*, click a row: the tile gives that take every time. A bank sound is rendered anew for every
+  drag (never twice the same take). The white line on a waveform is where the sound hits: drop it that much
+  before the frame (a whoosh peaks in its middle).
+- **Ambiances** and **Musiques**: lists with waveforms (click one to listen from there), ★, and a filter on
+  names, artists and tags. Music shows its artist and stems (`ES_<title> STEMS BASS`).
+- **Pour le script** (Ambiances and Musiques, on request only — nothing is placed): write a brief (« analog synths,
+  never an epic orchestra; warmer for the intimate passages »), then **Proposer pour le script**. The AI (the one
+  chosen on the IA page) reads the whole script and splits it where the music should change — only at real turns,
+  40 s to 3 min each, neighbours contrasting — or, for ambiences, only where the script puts us somewhere that can be
+  heard, true to the period, beds rather than one-off events. Each part gets its feel in words, a tempo range and
+  3–4 Epidemic searches that name sounds (instruments, texture, genre, era), never the topic or the words every
+  library answers with (cinematic, epic, documentary…). Each search's best results are interleaved; the part shows
+  its sentences, its time in the edit when a derush or the Sons edit is known (else estimated), and the passage.
+  Per part: edit the searches (**Chercher**, no AI), or **Refaire** with an instruction (« plus sombre », « sans
+  batterie »). Saved in `<video> - sons/suggestions.json` (`sfx/suggest.py`).
+- **≈** on any Epidemic track or sound: Epidemic's own « similar » search, to steer away from generic results.
+- **Levels**: every row shows the clip gain to set in Premiere (a file drop cannot set it; the drop says it too).
+  Sound effects: the automatic path's rule (above). Music: from its integrated loudness (BS.1770, measured once),
+  35 LU under it, kept between −25 and −20 dB — in the test edit Epidemic tracks at −9 to −14 LUFS sat at −20 to −25.
+  Ambiences: 36 LU under, between −30 and −3 dB (heavy rain at −29 LUFS sat at −7).
+- **Epidemic** (Enter in the filter): searches the current tab — sound effects, ambiences (15 s and longer)
+  or music (`SearchRecordings`, with BPM, moods and genres). Previews play from Epidemic; the first drag
+  downloads the WAV into `<video> - sons/médias` (music: wait for « prêt », then drag again), where it is then
+  one of your sounds.
+
+Files are sorted by name, folder and length: Epidemic names its effects with tags (« ES_Swooshes, Whoosh,
+Low… - Epidemic Sound ») and its music « ES_<title> - <artist> »; the nearest folder named sfx / music /
+ambience decides; else up to 12 s is an effect of its kind, an ambience word (rain, crowd, room tone…) or
+20 s and longer an ambience, 45 s and longer without tags music. Lengths, waveforms and hit points are
+measured once (`%LOCALAPPDATA%\autocut\sfx\board-index.json`); stars and the random switch are kept in
+`%APPDATA%\autocut\board.json`, for every project.
 
 **Output**: `<video> - sons/<title> Sons.xml` with two sequences — the sounds alone (paste them on the edit) and a
 copy of the edit with the sounds on new tracks under its own — one stereo track pair per kind (Whoosh, Clics, Pops,

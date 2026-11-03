@@ -30,7 +30,7 @@ SR = 48000
 NAMES = [   # file name -> kind (English and French words, as packs and Epidemic name them)
     ("typing", r"typing|keyboard|keystroke|key ?press|typewriter|clavier|frappe|dactylo"),
     ("whoosh", r"whoosh|woosh|swoosh|swish|swipe|swoop|whip|pass ?by|fly ?by|transition|swing|souffle"),
-    ("hit", r"impact|\bhit\b|boom|thud|punch|slam|sub ?drop|bass ?drop|braam|stomp"),
+    ("hit", r"impact|\bhit\b|boom|thud|punch|slam|sub ?drop|bass ?drop|braam|stomp|explosion|\bbomb|detonation"),
     ("pop", r"\bpop|bubble|blip|plop|bloop|boop|notif|ding|chime|bell|appear|cartoon"),
     ("click", r"click|clic|switch|\btick|\btap\b|button|mouse|toggle|select|interface|\bui\b|keypad|shutter"),
 ]
@@ -271,17 +271,11 @@ class Epidemic:
             raise RuntimeError(f"Epidemic : {(data.get('errors') or [{}])[0].get('message', text[:200])}")
         return data.get("data", data)
 
-    def search(self, term: str, kind: str, n: int = 12, max_ms: int = 6000) -> list[Snd]:
+    def search(self, term: str, kind: str, n: int = 12, max_ms: int | None = 6000, min_ms: int | None = None) -> list[Snd]:
+        span = {k: v for k, v in (("min", min_ms), ("max", max_ms)) if v}
         data = self.tool("SearchSoundEffects", {"query": {"term": term}, "first": n,
-                                                "filter": {"duration": {"max": max_ms}}})
-        out = []
-        for node in data.get("soundEffects", {}).get("nodes", []):
-            s = node.get("soundEffect", node)
-            af = s.get("audioFile") or {}
-            out.append(Snd(f"epidemic:{s['id']}", "epidemic", kind, s.get("title", ""), dur=af.get(
-                "durationInMilliseconds", 0) / 1000, licence="Epidemic Sound", preview=af.get("lqmp3Url", ""),
-                extra={"waveform": af.get("waveformUrl", "")}))
-        return out
+                                                **({"filter": {"duration": span}} if span else {})})
+        return [_sound_effect(node.get("soundEffect", node), kind) for node in data.get("soundEffects", {}).get("nodes", [])]
 
     def download(self, snd: Snd, folder: Path) -> Snd:
         """The WAV into the project's sounds folder (once), then measured like any file."""
@@ -303,6 +297,57 @@ class Epidemic:
         info = measure(decode(path), 16000, snd.kind)
         return Snd(snd.id, "epidemic", snd.kind, snd.name, str(path), info["dur"], info["sync"], info["peak_db"],
                    info["wave"], "Epidemic Sound", snd.preview, snd.extra)
+
+    # music (recordings): the same subscription, the same key
+    def search_music(self, term: str, n: int = 30, bpm: tuple[int, int] | None = None) -> list[dict]:
+        args = {"query": {"term": term}, "first": n}
+        if bpm and (bpm[0] or bpm[1]):
+            args["filter"] = {"bpm": {k: v for k, v in (("min", bpm[0]), ("max", bpm[1])) if v}}
+        data = self.tool("SearchRecordings", args)
+        return [_recording(node.get("recording", node)) for node in data.get("recordings", {}).get("nodes", [])]
+
+    def similar_music(self, uid: str, n: int = 24) -> list[dict]:
+        data = self.tool("SearchSimilarToRecording", {"id": uid, "first": n})
+        return [_recording(r) for r in data.get("recording", {}).get("similarRecordings", {}).get("nodes", [])]
+
+    def similar_sfx(self, uid: str, kind: str, n: int = 24) -> list[Snd]:
+        data = self.tool("SearchSimilarToSoundEffect", {"id": uid, "first": n})
+        return [_sound_effect(s, kind) for s in data.get("soundEffect", {}).get("similarSoundEffects", {}).get("nodes", [])]
+
+    def download_music(self, uid: str, title: str, artist: str, folder: Path) -> Path:
+        """The full track as WAV, named like the files Epidemic's site gives (ES_<title> - <artist>)."""
+        clean = lambda s: re.sub(r'[^\w ,.()\'-]', ' ', s).strip()[:80]     # noqa: E731
+        path = folder / f"ES_{clean(title)} - {clean(artist) or 'Epidemic Sound'} ({uid[:8]}).wav"
+        if path.exists():
+            return path
+        data = self.tool("DownloadRecording", {"id": uid, "options": {"fileType": "WAV", "stemType": "FULL"}})
+        url = _find_url(data)
+        if not url:
+            raise RuntimeError("Epidemic : pas de lien de téléchargement")
+        folder.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".part")
+        with self.http.stream("GET", url, headers={"Authorization": ""}) as r:
+            r.raise_for_status()
+            with tmp.open("wb") as fh:
+                for chunk in r.iter_bytes():
+                    fh.write(chunk)
+        tmp.replace(path)
+        return path
+
+
+def _sound_effect(s: dict, kind: str) -> Snd:
+    af = s.get("audioFile") or {}
+    return Snd(f"epidemic:{s['id']}", "epidemic", kind, s.get("title", ""), dur=af.get("durationInMilliseconds", 0) / 1000,
+               licence="Epidemic Sound", preview=af.get("lqmp3Url", ""), extra={"waveform": af.get("waveformUrl", "")})
+
+
+def _recording(r: dict) -> dict:
+    af = r.get("audioFile") or {}
+    artist = next((c["artist"]["name"] for c in r.get("credits", []) if c.get("role") == "MAIN_ARTIST"), "")
+    tags = [t["displayName"] for t in r.get("tags", []) if t.get("dimension", {}).get("name") in ("mood", "genre")]
+    return {"uid": r["id"], "title": r.get("title", ""), "artist": artist, "bpm": r.get("bpm") or 0,
+            "dur": af.get("durationInMilliseconds", 0) / 1000, "preview": af.get("lqmp3Url", ""),
+            "tags": tags[:5], "stems": [s.get("type") for s in r.get("stems", [])]}
 
 
 def _find_url(data) -> str:

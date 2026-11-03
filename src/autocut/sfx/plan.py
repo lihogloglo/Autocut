@@ -28,7 +28,10 @@ RULES = {   # what happens on screen -> kind of sound ("" = nothing)
 }
 DENSITY = {1: (0.70, 0.50), 2: (0.45, 0.25), 3: (0.25, 0.12)}    # level -> (min strength, min gap s)
 MIN_GAP = {"whoosh": 0.60, "hit": 0.8}                              # a kind never closer to itself than this
-TARGET_PEAK = {"whoosh": -15.0, "click": -19.0, "pop": -17.0, "typing": -21.0, "hit": -13.0}
+TARGET_PEAK = {"whoosh": -15.0, "click": -17.0, "pop": -17.0, "typing": -15.0, "hit": -13.0}
+# clip gain in Premiere: always in this range, whatever the file's mastering (the user's own edits: whooshes
+# -5 / -10, clicks and typing around -15, never under -20 or over -5 for a hot or a quiet file)
+SFX_GAIN = (-20.0, -5.0)
 LEAD = {"whoosh": 0.04}          # a whoosh peaks just after the cut; attacks land on the frame
 POOL = 8                         # takes per kind
 MAX_DUR = {"whoosh": 1.8, "click": 0.8, "pop": 1.2, "hit": 3.5, "typing": 12.0}   # longer takes: search only
@@ -101,10 +104,16 @@ def fit(cue: Cue, snd: L.Snd, s: Settings, rng: random.Random | None = None) -> 
     jitter = (rng.uniform(-1.5, 1.5) if rng else 0.0)
     weight = (cue.event.get("strength", 0.7) - 0.7) * 5           # bigger change, a little louder
     extra = -4.0 if cue.rule == "exit" else 0.0
-    gain = TARGET_PEAK.get(cue.kind, -18.0) - snd.peak_db + weight + extra + jitter + s.volume
+    gain = sfx_gain(cue.kind, snd.peak_db, weight + extra + jitter) + s.volume
     cue.sound, cue.start, cue.src_in, cue.length = snd.to_json(), round(start, 4), round(src_in, 4), round(length, 4)
     cue.gain_db = round(max(-40.0, min(6.0, gain)), 2)        # Premiere caps clip gain at +6 dB
     return cue
+
+
+def sfx_gain(kind: str, peak_db: float, nudge: float = 0.0) -> float:
+    """The clip gain a sound effect gets: its peak brought to its kind's level, kept in SFX_GAIN."""
+    lo, hi = SFX_GAIN
+    return round(max(lo, min(hi, TARGET_PEAK.get(kind, -17.0) - peak_db + nudge)), 1)
 
 
 class Bag:
