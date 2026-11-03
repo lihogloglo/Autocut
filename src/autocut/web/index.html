@@ -27,6 +27,7 @@
       <button class="step" data-step="derush"><span class="num">2</span><span class="txt"><b>Derush</b><small></small></span></button>
       <button class="step" data-step="sources"><span class="num">3</span><span class="txt"><b>Illustrations</b><small></small></span></button>
       <button class="step" data-step="storyboard"><span class="num">4</span><span class="txt"><b>Storyboard</b><small></small></span></button>
+      <button class="step" data-step="sfx"><span class="num">5</span><span class="txt"><b>Sons</b><small></small></span></button>
     </nav>
     <nav class="steps setup-nav">
       <button class="step" data-step="ai"><span class="num gear">✦</span><span class="txt"><b>IA</b><small></small></span></button>
@@ -165,6 +166,24 @@
         </div>
       </details>
       <div class="result" id="res-sb"></div>
+    </section>
+
+    <!-- 5. Sons -->
+    <section class="page" id="page-sfx">
+      <header>
+        <h1>Sons</h1>
+        <p class="lead">Whooshes, clics, pops et clavier sur tout ce qui bouge à l'écran, avec des prises qui varient. Vous écoutez et ajustez chaque son, puis ils vont dans Premiere sur leurs propres pistes.</p>
+      </header>
+      <div class="pslot sfx-edit" id="sfx-edit" data-zone="sfx"></div>
+      <h3 class="sub-h">Sources</h3>
+      <ul class="checks" id="sfx-srcs" data-zone="sfx-src"></ul>
+      <div class="row-opts dens"><span class="muted">Densité</span>
+        <div class="seg" id="sfx-density"><button data-d="1">Léger</button><button data-d="2">Normal</button><button data-d="3">Dense</button></div></div>
+      <div class="actions">
+        <button class="btn primary big" data-run="sfx" id="go-sfx">Analyser le montage</button>
+        <button class="btn big" id="open-sfx">Ouvrir l'éditeur</button>
+      </div>
+      <div class="result" id="res-sfx"></div>
     </section>
 
     <!-- IA -->

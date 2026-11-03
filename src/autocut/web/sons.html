@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sons</title>
+<style>
+:root { --bg:#f6f7f9; --surface:#fff; --surface-2:#f2f4f7; --border:#e1e4ea; --text:#1b1d22; --muted:#6a7080;
+  --accent:#4a6cf7; --accent-soft:#e8edff; --ok:#1f9d63; --danger:#d6453d; --voice:#9aa1b2; --grid:#e9ecf1;
+  --k-whoosh:#4a6cf7; --k-click:#1f9d63; --k-pop:#e8833a; --k-typing:#9b59b6; --k-hit:#d6453d; color-scheme:light; }
+@media (prefers-color-scheme: dark) { :root { --bg:#16171a; --surface:#212328; --surface-2:#272a30; --border:#2f323a;
+  --text:#e7e8ec; --muted:#9399a6; --accent:#6d8bff; --accent-soft:#252c48; --voice:#5d6372; --grid:#262930;
+  --k-whoosh:#6d8bff; --k-click:#3ccf8e; --k-pop:#ff9f5a; --k-typing:#c084fc; --k-hit:#ff6b63; color-scheme:dark; } }
+* { box-sizing:border-box; }
+[hidden] { display:none !important; }
+html,body { height:100%; margin:0; }
+body { background:var(--bg); color:var(--text); font:13.5px/1.4 "Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  display:grid; grid-template-rows:auto 1fr; overflow:hidden; user-select:none; }
+button { font:inherit; color:inherit; }
+.btn { border:1px solid var(--border); background:var(--surface); border-radius:8px; padding:6px 12px; cursor:pointer; }
+.btn:hover { border-color:var(--muted); }
+.btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+.btn:disabled { opacity:.5; cursor:default; }
+.icon { border:0; background:transparent; cursor:pointer; padding:4px 8px; border-radius:6px; font-size:15px; color:var(--muted); }
+.icon:hover { background:var(--surface-2); color:var(--text); }
+.bar { display:flex; align-items:center; gap:14px; padding:10px 16px; border-bottom:1px solid var(--border); background:var(--surface); flex-wrap:wrap; }
+.bar .title { font-weight:650; font-size:15px; margin-right:auto; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:34vw; }
+.seg { display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+.seg button { border:0; background:transparent; padding:6px 12px; cursor:pointer; }
+.seg button.on { background:var(--accent); color:#fff; }
+.vol { display:flex; align-items:center; gap:6px; color:var(--muted); }
+.vol input { width:90px; }
+.legend { display:flex; gap:6px; flex-wrap:wrap; }
+.chip { display:flex; align-items:center; gap:6px; border:1px solid var(--border); border-radius:99px; padding:3px 10px 3px 8px; cursor:pointer; background:var(--surface); }
+.chip i { width:9px; height:9px; border-radius:3px; background:var(--c); }
+.chip.muted { opacity:.4; }
+.chip b { font-weight:600; }
+.app { display:grid; grid-template-columns:1fr 360px; min-height:0; }
+.left { display:grid; grid-template-rows:1fr auto; min-height:0; }
+.tl { position:relative; overflow-x:auto; overflow-y:hidden; background:var(--surface); border-right:1px solid var(--border); }
+.tl .spacer { height:1px; }
+.tl canvas { position:sticky; left:0; top:0; display:block; }
+.transport { display:flex; align-items:center; gap:12px; padding:8px 14px; border-top:1px solid var(--border); background:var(--surface); border-right:1px solid var(--border); }
+.transport .tc { font:600 14px Consolas,monospace; min-width:92px; }
+.transport .hint { color:var(--muted); font-size:12px; margin-left:auto; }
+.transport input[type=range] { width:140px; }
+.play { width:34px; height:34px; border-radius:50%; border:0; background:var(--accent); color:#fff; cursor:pointer; font-size:14px; }
+.insp { overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:12px; background:var(--bg); }
+.insp .empty { color:var(--muted); margin-top:40px; text-align:center; }
+.pic { width:100%; aspect-ratio:16/9; background:var(--surface-2) center/contain no-repeat; border-radius:8px; border:1px solid var(--border); }
+.what { display:flex; align-items:baseline; gap:8px; }
+.what b { font-size:15px; }
+.what small, .sub { color:var(--muted); font-size:12px; }
+.card { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 12px; display:flex; flex-direction:column; gap:8px; }
+.wave { width:100%; height:84px; display:block; border-radius:6px; background:var(--surface-2); cursor:pointer; }
+.take { display:flex; align-items:center; gap:6px; }
+.take .name { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:550; }
+.badge { font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; padding:1px 6px; border-radius:5px; background:var(--surface-2); color:var(--muted); }
+.row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.row label { color:var(--muted); min-width:52px; }
+.row input[type=range] { flex:1; }
+select { font:inherit; color:inherit; background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:4px 6px; }
+.alts { display:flex; flex-direction:column; gap:4px; max-height:300px; overflow-y:auto; }
+.alt { display:grid; grid-template-columns:28px 1fr 70px; align-items:center; gap:6px; padding:4px 6px; border-radius:7px; cursor:pointer; }
+.alt:hover { background:var(--surface-2); }
+.alt.cur { background:var(--accent-soft); }
+.alt span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12.5px; }
+.alt canvas { width:70px; height:22px; }
+.search { display:flex; gap:6px; }
+.search input { flex:1; font:inherit; color:inherit; background:var(--surface); border:1px solid var(--border); border-radius:7px; padding:5px 8px; }
+.rules { position:absolute; right:16px; top:56px; z-index:5; background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.18); padding:12px 14px; display:grid; grid-template-columns:auto auto; gap:6px 12px; align-items:center; }
+.rules h4 { grid-column:1/-1; margin:0 0 4px; }
+.toast { position:fixed; right:18px; bottom:18px; background:var(--text); color:var(--bg); padding:9px 14px; border-radius:8px; font-size:13px; z-index:9; max-width:420px; }
+.busy { cursor:progress; }
+</style>
+<script src="i18n.js"></script>
+</head>
+<body>
+<header class="bar">
+  <span class="title" id="title" data-noi18n>Sons</span>
+  <div class="legend" id="legend"></div>
+  <div class="seg" id="density" title="Densité">
+    <button data-d="1">Léger</button><button data-d="2">Normal</button><button data-d="3">Dense</button>
+  </div>
+  <label class="vol" title="Volume de tous les sons"><span>🔊</span><input type="range" id="vol" min="-12" max="12" step="1"><span id="volv" data-noi18n></span></label>
+  <button class="btn" id="rules-btn">Règles</button>
+  <button class="btn primary" id="place">Placer dans Premiere</button>
+</header>
+<div class="rules" id="rules" hidden></div>
+<div class="app">
+  <div class="left">
+    <div class="tl" id="tl"><div class="spacer" id="spacer"></div><canvas id="cv"></canvas></div>
+    <div class="transport">
+      <button class="play" id="play" title="Lecture (Espace)">▶</button>
+      <span class="tc" id="tc" data-noi18n>0:00:00</span>
+      <label class="sub">Zoom <input type="range" id="zoom" min="8" max="400" value="60"></label>
+      <span class="hint">Espace lire · ←/→ son précédent/suivant · A/Z autre prise · Suppr retirer · double-clic ajouter</span>
+    </div>
+  </div>
+  <aside class="insp" id="insp"><div class="empty">Cliquez sur un son.</div></aside>
+</div>
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const KINDS = ["whoosh", "click", "pop", "typing", "hit"];
+const KNAME = { whoosh: "Whoosh", click: "Clic", pop: "Pop", typing: "Clavier", hit: "Impact" };
+const RULES = [["transition", "Transition"], ["appear.full", "Plein écran qui apparaît"], ["appear.element", "Élément qui apparaît"],
+  ["title", "Titre"], ["move", "Zoom ou glissement"], ["motion.full", "Grosse animation (dans un clip)"],
+  ["motion.element", "Petite animation (dans un clip)"], ["motion.text", "Texte qui s'écrit"], ["appear.layer", "Calque d'effets"],
+  ["exit", "Disparition"]];
+const WHAT = Object.fromEntries([...RULES, ["hand", "Ajouté à la main"]]);
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const color = (k) => css(`--k-${k}`) || "#888";
+const tcode = (s) => { s = Math.max(0, s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), x = s % 60;
+  return `${h}:${String(m).padStart(2, "0")}:${x.toFixed(2).padStart(5, "0")}`; };
+const api = async (path, body) => (await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {})).json();
+const toast = (m) => { const d = document.createElement("div"); d.className = "toast"; d.textContent = m; document.body.appendChild(d); setTimeout(() => d.remove(), 3500); };
+
+const S = { data: null, cues: [], sel: null, pps: 60, t: 0, playing: false, muted: new Set(), fps: 25 };
+const RULER = 22, EXIST = 14;
+let VOICE = 76, ROW = 30;
+const rowY = (k) => RULER + VOICE + EXIST + KINDS.indexOf(k) * ROW;
+const H = () => RULER + VOICE + EXIST + KINDS.length * ROW + 8;
+
+// --- audio ---------------------------------------------------------------------------------------
+const ctx = new (window.AudioContext || window.webkitAudioContext)();
+const buffers = new Map();
+const voiceEl = new Audio();
+voiceEl.preload = "auto";
+let playing = [];
+async function buffer(path) {
+  if (!buffers.has(path)) buffers.set(path, fetch(`/snd?path=${encodeURIComponent(path)}`).then((r) => r.arrayBuffer()).then((b) => ctx.decodeAudioData(b)).catch(() => null));
+  return buffers.get(path);
+}
+const master = () => Math.pow(10, 0 / 20);
+function playCue(c, when, from = 0) {
+  return buffer(c.sound.path).then((buf) => {
+    if (!buf) return;
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = buf; g.gain.value = Math.pow(10, c.gain_db / 20) * master();
+    src.connect(g).connect(ctx.destination);
+    const off = c.src_in + from, len = c.length - from;
+    if (len <= 0) return;
+    src.start(when, off, len);
+    playing.push(src);
+  });
+}
+function stop() {
+  playing.forEach((s) => { try { s.stop(); } catch (e) {} });
+  playing = [];
+  voiceEl.pause();
+  S.playing = false;
+  $("#play").textContent = "▶";
+}
+async function play(from, until = Infinity) {
+  stop();
+  await ctx.resume();
+  S.playing = true; $("#play").textContent = "⏸";
+  const t0 = Math.max(0, from);
+  if (S.data.has_voice) { voiceEl.currentTime = t0; try { await voiceEl.play(); } catch (e) {} }
+  const base = ctx.currentTime + 0.05;
+  S.clock = { base, t0, until };
+  for (const c of S.cues) {
+    if (!c.on || S.muted.has(c.kind) || c.start + c.length < t0 || c.start > until) continue;
+    const at = c.start - t0;
+    if (at >= 0) playCue(c, base + at); else playCue(c, base, -at);
+  }
+  // sounds are scheduled a little at a time would be lighter, but an edit has a few hundred: fine
+  tick();
+}
+function tick() {
+  if (!S.playing) return;
+  const now = S.clock.t0 + (ctx.currentTime - S.clock.base);
+  if (now >= S.clock.until || now >= S.data.duration) { stop(); S.t = Math.min(now, S.data.duration); draw(); return; }
+  S.t = now;
+  follow();
+  draw();
+  requestAnimationFrame(tick);
+}
+function soundAlone(c) { stop(); ctx.resume(); playCue({ ...c, gain_db: Math.max(c.gain_db, -14) }, ctx.currentTime + 0.02); }
+
+// --- timeline ------------------------------------------------------------------------------------
+const tl = $("#tl"), cv = $("#cv"), g = cv.getContext("2d");
+function size() {
+  const dpr = window.devicePixelRatio || 1, w = tl.clientWidth;
+  const room = Math.max(260, tl.clientHeight - 16);          // rows share the height of the window
+  ROW = Math.max(30, Math.min(64, Math.floor((room - RULER - EXIST - 90) / KINDS.length)));
+  VOICE = Math.max(70, room - RULER - EXIST - ROW * KINDS.length - 8);
+  const h = H();
+  cv.width = w * dpr; cv.height = h * dpr; cv.style.width = w + "px"; cv.style.height = h + "px";
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  $("#spacer").style.width = (S.data ? S.data.duration * S.pps + 40 : w) + "px";
+  draw();
+}
+const x2t = (x) => (tl.scrollLeft + x) / S.pps;
+const t2x = (t) => t * S.pps - tl.scrollLeft;
+function draw() {
+  if (!S.data) return;
+  const w = tl.clientWidth, t0 = x2t(0), t1 = x2t(w);
+  g.clearRect(0, 0, w, H());
+  // ruler
+  g.fillStyle = css("--muted"); g.font = "11px Segoe UI";
+  const step = [0.04, 0.2, 1, 2, 5, 10, 30, 60, 300].find((s) => s * S.pps >= 70) || 600;
+  for (let t = Math.floor(t0 / step) * step; t < t1; t += step) {
+    const x = t2x(t);
+    g.fillRect(x, RULER - 6, 1, 6);
+    g.fillText(tcode(t).replace(/^0:/, "").replace(/\.00$/, ""), x + 3, 12);
+    g.fillStyle = css("--grid"); g.fillRect(x, RULER, 1, H() - RULER); g.fillStyle = css("--muted");
+  }
+  // voice
+  const v = S.data.voice;
+  if (v) {
+    g.fillStyle = css("--voice");
+    const mid = RULER + VOICE / 2, rate = v.rate;
+    for (let x = 0; x < w; x++) {
+      const a = Math.floor(x2t(x) * rate), b = Math.max(a + 1, Math.floor(x2t(x + 1) * rate));
+      let m = 0; for (let i = a; i < b && i < v.peaks.length; i++) m = Math.max(m, v.peaks[i]);
+      const hgt = m * (VOICE / 2 - 4);
+      g.fillRect(x, mid - hgt, 1, hgt * 2 || 1);
+    }
+  }
+  // sounds already in the edit
+  g.fillStyle = css("--muted"); g.globalAlpha = .5;
+  for (const s of S.data.existing || []) { if (s.t > t1 || s.t + s.dur < t0) continue; g.fillRect(t2x(s.t), RULER + VOICE + 3, Math.max(2, s.dur * S.pps), EXIST - 6); }
+  g.globalAlpha = 1;
+  // rows
+  KINDS.forEach((k) => {
+    const y = rowY(k);
+    g.fillStyle = css("--grid"); g.fillRect(0, y, w, 1);
+    g.fillStyle = color(k); g.globalAlpha = S.muted.has(k) ? .25 : .7; g.font = "600 10.5px Segoe UI"; g.fillText(t(KNAME[k]), 6, y + 12); g.globalAlpha = 1;
+  });
+  // cues
+  for (const c of S.cues) {
+    if (c.start > t1 || c.start + c.length < t0) continue;
+    const x = t2x(c.start), wd = Math.max(3, c.length * S.pps), y = rowY(c.kind) + 3, hh = ROW - 6, col = color(c.kind);
+    g.globalAlpha = c.on ? (S.muted.has(c.kind) ? .3 : 1) : .25;
+    g.fillStyle = col + "33"; g.fillRect(x, y, wd, hh);
+    const wave = c.sound.wave || [], dur = c.sound.dur || c.length, amp = Math.min(1, Math.pow(10, (c.gain_db + c.sound.peak_db + 12) / 20));
+    g.fillStyle = col;
+    for (let px = 0; px < wd; px++) {
+      const ft = c.src_in + px / S.pps, i = Math.floor(ft / dur * wave.length);
+      const a = (wave[i] || 0) * amp * (hh / 2 - 1);
+      g.fillRect(x + px, y + hh / 2 - a, 1, Math.max(1, a * 2));
+    }
+    g.fillStyle = col; g.fillRect(t2x(c.t), y - 2, 2, hh + 4);
+    if (S.sel && S.sel.id === c.id) { g.strokeStyle = css("--text"); g.lineWidth = 2; g.strokeRect(x - 1, y - 1, wd + 2, hh + 2); }
+    if (!c.on) { g.strokeStyle = col; g.setLineDash([3, 3]); g.lineWidth = 1; g.strokeRect(x, y, wd, hh); g.setLineDash([]); }
+    g.globalAlpha = 1;
+  }
+  // playhead
+  const px = t2x(S.t);
+  g.fillStyle = css("--danger"); g.fillRect(px, 0, 2, H());
+  $("#tc").textContent = tcode(S.t);
+}
+function follow() {
+  const x = t2x(S.t), w = tl.clientWidth;
+  if (x > w * 0.85 || x < 0) tl.scrollLeft = S.t * S.pps - w * 0.25;
+}
+function hit(x, y) {
+  const t = x2t(x);
+  return S.cues.find((c) => y >= rowY(c.kind) && y < rowY(c.kind) + ROW && t >= c.start - 3 / S.pps && t <= c.start + Math.max(c.length, 6 / S.pps));
+}
+let drag = null;
+cv.addEventListener("mousedown", (e) => {
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top, c = hit(x, y);
+  if (c) { select(c); drag = { c, x0: x, t0: c.t, start0: c.start, moved: false }; }
+  else { S.t = Math.max(0, x2t(x)); if (S.playing) play(S.t); draw(); }
+});
+window.addEventListener("mousemove", (e) => {
+  if (!drag) return;
+  const r = cv.getBoundingClientRect(), dx = e.clientX - r.left - drag.x0;
+  if (Math.abs(dx) > 2) drag.moved = true;
+  const dt = Math.round(dx / S.pps * S.fps) / S.fps;
+  drag.c.t = drag.t0 + dt; drag.c.start = drag.start0 + dt;
+  draw();
+});
+window.addEventListener("mouseup", async () => {
+  if (!drag) return;
+  const d = drag; drag = null;
+  if (d.moved) await setCue(d.c, { t: d.c.t });
+});
+cv.addEventListener("dblclick", async (e) => {
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  if (hit(x, y)) return;
+  const k = KINDS.find((k) => y >= rowY(k) && y < rowY(k) + ROW);
+  if (!k) return;
+  const res = await api("/api/add", { t: Math.round(x2t(x) * S.fps) / S.fps, kind: k });
+  if (!res.ok) return toast(res.error);
+  S.cues.push(res.cue); S.cues.sort((a, b) => a.t - b.t); select(res.cue); legend();
+});
+tl.addEventListener("scroll", draw);
+tl.addEventListener("wheel", (e) => {
+  if (e.ctrlKey) {
+    e.preventDefault();
+    const r = cv.getBoundingClientRect(), x = e.clientX - r.left, t = x2t(x);
+    zoom(S.pps * (e.deltaY < 0 ? 1.25 : 0.8), t, x);
+  } else if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { tl.scrollLeft += e.deltaY; e.preventDefault(); }
+}, { passive: false });
+function zoom(pps, t = S.t, x = tl.clientWidth / 3) {
+  S.pps = Math.max(8, Math.min(400, pps));
+  $("#zoom").value = S.pps;
+  $("#spacer").style.width = S.data.duration * S.pps + 40 + "px";
+  tl.scrollLeft = t * S.pps - x;
+  draw();
+}
+$("#zoom").addEventListener("input", (e) => zoom(+e.target.value));
+window.addEventListener("resize", size);
+
+// --- inspector -----------------------------------------------------------------------------------
+function drawWave(canvas, snd, c) {
+  const dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const k = canvas.getContext("2d"); k.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const wave = snd.wave || [], col = color(snd.kind || (c && c.kind));
+  if (c) { k.fillStyle = col + "22"; k.fillRect(c.src_in / snd.dur * w, 0, c.length / snd.dur * w, h); }
+  k.fillStyle = col;
+  for (let x = 0; x < w; x++) { const a = (wave[Math.floor(x / w * wave.length)] || 0) * (h / 2 - 2); k.fillRect(x, h / 2 - a, 1, Math.max(1, a * 2)); }
+  if (!wave.length) { k.fillStyle = css("--muted"); k.font = "11px Segoe UI"; k.fillText(`${(snd.dur || 0).toFixed(1)} s`, 4, h / 2 + 4); }
+  if (snd.dur) { k.fillStyle = css("--text"); k.fillRect(snd.sync / snd.dur * w, 0, 2, h); }
+}
+function select(c) {
+  S.sel = c;
+  if (!c) { $("#insp").innerHTML = `<div class="empty">${t("Cliquez sur un son.")}</div>`; draw(); return; }
+  const ev = c.event || {}, pool = (S.data.pools[c.kind] || []);
+  const what = WHAT[c.rule] || c.rule;
+  $("#insp").innerHTML = `
+    <div class="pic" id="pic"></div>
+    <div class="what"><b>${esc(t(what))}</b><small data-noi18n>${esc(tcode(c.t))}${ev.track ? " · V" + ev.track : ""}</small></div>
+    <div class="sub" data-noi18n>${esc(ev.clip || "")}</div>
+    <div class="card">
+      <div class="take"><button class="icon" id="prev" title="${esc(t("Prise précédente (A)"))}">◀</button>
+        <span class="name" data-noi18n title="${esc(c.sound.name)}">${esc(c.sound.name)}</span><span class="badge">${esc(c.sound.source)}</span>
+        <button class="icon" id="next" title="${esc(t("Prise suivante (Z)"))}">▶</button></div>
+      <canvas class="wave" id="wave" title="${esc(t("Écouter le son seul"))}"></canvas>
+      <div class="row"><button class="btn" id="ctx">▶ ${t("En contexte")}</button><button class="btn" id="alone">${t("Son seul")}</button>
+        <button class="btn" id="toggle">${c.on ? t("Retirer") : t("Remettre")}</button></div>
+    </div>
+    <div class="card">
+      <div class="row"><label>${t("Son")}</label><select id="kind">${KINDS.map((k) => `<option value="${k}" ${k === c.kind ? "selected" : ""}>${t(KNAME[k])}</option>`).join("")}</select></div>
+      <div class="row"><label>${t("Volume")}</label><input type="range" id="gain" min="-40" max="6" step="0.5" value="${c.gain_db}"><span id="gainv" data-noi18n>${c.gain_db.toFixed(1)} dB</span></div>
+      <div class="row"><label>${t("Calage")}</label><button class="btn" id="m1">− 1 ${t("image")}</button><button class="btn" id="p1">+ 1 ${t("image")}</button></div>
+    </div>
+    <div class="card">
+      <div class="search"><input id="q" placeholder="${esc(t("Chercher un autre son…"))}"><button class="btn" id="go">${t("Chercher")}</button></div>
+      <div class="alts" id="alts"></div>
+    </div>`;
+  fetch(`/thumb?id=${c.id}`).then((r) => r.ok ? r.blob() : null).then((b) => { if (b && S.sel === c) $("#pic").style.backgroundImage = `url(${URL.createObjectURL(b)})`; });
+  drawWave($("#wave"), c.sound, c);
+  alts(pool, c);
+  $("#wave").onclick = () => soundAlone(c);
+  $("#alone").onclick = () => soundAlone(c);
+  $("#ctx").onclick = () => play(c.t - 1.5, c.t + 2);
+  $("#toggle").onclick = () => setCue(c, { on: !c.on });
+  $("#prev").onclick = () => other(c, -1);
+  $("#next").onclick = () => other(c, 1);
+  $("#kind").onchange = (e) => setCue(c, { kind: e.target.value });
+  $("#gain").oninput = (e) => { $("#gainv").textContent = `${(+e.target.value).toFixed(1)} dB`; };
+  $("#gain").onchange = (e) => setCue(c, { gain_db: +e.target.value });
+  $("#m1").onclick = () => setCue(c, { t: c.t - 1 / S.fps });
+  $("#p1").onclick = () => setCue(c, { t: c.t + 1 / S.fps });
+  const go = async () => {
+    $("#alts").innerHTML = `<div class="sub">${t("Recherche…")}</div>`;
+    const r = await api(`/api/search?kind=${c.kind}&q=${encodeURIComponent($("#q").value)}`);
+    alts(r.found || [], c);
+  };
+  $("#go").onclick = go;
+  $("#q").onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") go(); };
+  draw();
+}
+function alts(list, c) {
+  const box = $("#alts");
+  if (!box) return;
+  box.innerHTML = list.length ? "" : `<div class="sub">${t("Rien trouvé.")}</div>`;
+  list.forEach((s) => {
+    const row = document.createElement("div");
+    row.className = "alt" + (s.id === c.sound.id ? " cur" : "");
+    row.innerHTML = `<button class="icon" title="${esc(t("Écouter"))}">▶</button><span title="${esc(s.name)}" data-noi18n>${esc(s.name)}</span><canvas></canvas>`;
+    $("button", row).onclick = (e) => { e.stopPropagation(); preview(s); };
+    row.onclick = () => setCue(c, { sound: s });
+    box.appendChild(row);
+    drawWave($("canvas", row), { ...s, kind: c.kind });
+  });
+}
+const prevAudio = new Audio();
+function preview(s) {
+  stop();
+  if (s.path) { ctx.resume(); playCue({ sound: s, src_in: 0, length: s.dur, gain_db: -12 - (s.peak_db || 0) + 0, kind: s.kind }, ctx.currentTime + 0.02); }
+  else if (s.preview) { prevAudio.src = s.preview; prevAudio.play(); }
+}
+function other(c, dir) {
+  const pool = S.data.pools[c.kind] || [];
+  if (!pool.length) return;
+  const i = pool.findIndex((s) => s.id === c.sound.id);
+  setCue(c, { sound: pool[(i + dir + pool.length) % pool.length] }, true);
+}
+async function setCue(c, fields, listen = false) {
+  document.body.classList.add("busy");
+  const r = await api("/api/cue", { id: c.id, fields });
+  document.body.classList.remove("busy");
+  if (!r.ok) { toast(r.error); return; }
+  const i = S.cues.findIndex((x) => x.id === c.id);
+  S.cues[i] = r.cue;
+  S.cues.sort((a, b) => a.t - b.t);
+  if (!S.sel || S.sel.id === c.id) select(r.cue);
+  legend();
+  if (listen) play(r.cue.t - 1, r.cue.t + 1.5);
+}
+
+// --- header --------------------------------------------------------------------------------------
+function legend() {
+  $("#legend").innerHTML = KINDS.map((k) => {
+    const n = S.cues.filter((c) => c.kind === k && c.on).length;
+    return n || (S.data.pools[k] || []).length ? `<span class="chip ${S.muted.has(k) ? "muted" : ""}" data-k="${k}" style="--c:${color(k)}" title="${esc(t("Couper à l'écoute"))}"><i></i>${t(KNAME[k])} <b data-noi18n>${n}</b></span>` : "";
+  }).join("");
+  document.querySelectorAll("#legend .chip").forEach((el) => el.onclick = () => {
+    const k = el.dataset.k; S.muted.has(k) ? S.muted.delete(k) : S.muted.add(k); legend(); draw();
+  });
+  document.querySelectorAll("#density button").forEach((b) => b.classList.toggle("on", +b.dataset.d === (S.data.settings.density || 2)));
+  $("#vol").value = S.data.settings.volume || 0;
+  $("#volv").textContent = `${(S.data.settings.volume || 0) > 0 ? "+" : ""}${S.data.settings.volume || 0} dB`;
+}
+async function replan(settings) {
+  document.body.classList.add("busy");
+  const r = await api("/api/replan", { settings });
+  document.body.classList.remove("busy");
+  if (!r.ok) return toast(r.error);
+  load(r.state);
+  toast(t("{n} sons", { n: S.cues.filter((c) => c.on).length }));
+}
+document.querySelectorAll("#density button").forEach((b) => b.onclick = () => replan({ density: +b.dataset.d }));
+$("#vol").onchange = (e) => replan({ volume: +e.target.value });
+$("#rules-btn").onclick = () => {
+  const box = $("#rules");
+  if (!box.hidden) { box.hidden = true; return; }
+  const rules = S.data.settings.rules || {};
+  box.innerHTML = `<h4>${t("Quand… → quel son")}</h4>` + RULES.map(([k, label]) => `<span>${t(label)}</span>
+    <select data-r="${k}"><option value="">${t("rien")}</option>${KINDS.map((x) => `<option value="${x}" ${rules[k] === x ? "selected" : ""}>${t(KNAME[x])}</option>`).join("")}</select>`).join("");
+  box.querySelectorAll("select").forEach((s) => s.onchange = () => replan({ rules: { ...S.data.settings.rules, [s.dataset.r]: s.value } }));
+  box.hidden = false;
+};
+$("#place").onclick = async () => {
+  const b = $("#place"); b.disabled = true; b.textContent = t("Écriture…");
+  const r = await api("/api/place", {});
+  b.disabled = false; b.textContent = t("Placer dans Premiere");
+  if (!r.ok) return toast(r.error);
+  toast(t("Écrit : {name}. Premiere : Fichier › Importer.", { name: r.path.split(/[\\/]/).pop() }));
+  api("/api/reveal", { path: r.path });
+};
+$("#play").onclick = () => S.playing ? stop() : play(S.t);
+
+// --- keys ----------------------------------------------------------------------------------------
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  const on = S.cues;
+  if (e.code === "Space") { e.preventDefault(); S.playing ? stop() : play(S.sel && !S.playing && Math.abs(S.t - S.sel.t) > 30 ? S.sel.t - 1.5 : S.t); }
+  else if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+    e.preventDefault();
+    const ref = S.sel ? S.sel.t : S.t, dir = e.key === "ArrowRight" ? 1 : -1;
+    const c = dir > 0 ? on.find((c) => c.t > ref + 1e-3) : [...on].reverse().find((c) => c.t < ref - 1e-3);
+    if (c) { select(c); S.t = c.t - 0.5; if (t2x(c.t) < 0 || t2x(c.t) > tl.clientWidth) tl.scrollLeft = c.t * S.pps - tl.clientWidth / 3; play(c.t - 1, c.t + 1.5); }
+  }
+  else if (!S.sel) return;
+  else if (e.key === "Delete" || e.key === "Backspace") setCue(S.sel, { on: !S.sel.on });
+  else if (e.key === "a" || e.key === "A") other(S.sel, -1);
+  else if (e.key === "z" || e.key === "Z") other(S.sel, 1);
+  else if (e.key === "+") setCue(S.sel, { gain_db: S.sel.gain_db + 1 });
+  else if (e.key === "-") setCue(S.sel, { gain_db: S.sel.gain_db - 1 });
+  else if (e.key === "Enter") play(S.sel.t - 1.5, S.sel.t + 2);
+});
+document.addEventListener("click", (e) => { if (!e.target.closest("#rules,#rules-btn")) $("#rules").hidden = true; });
+
+// --- start ---------------------------------------------------------------------------------------
+function load(st) {
+  S.data = st; S.cues = st.cues;
+  const f = String(st.fps).split("/"); S.fps = f.length > 1 ? f[0] / f[1] : +f[0];
+  $("#title").textContent = st.title || "Sons";
+  document.title = `${t("Sons")} · ${st.title || ""}`;
+  if (S.sel) { const c = S.cues.find((x) => x.id === S.sel.id); select(c || null); }
+  legend(); size();
+}
+(async () => {
+  const st = await api("/api/state");
+  voiceEl.src = "voice.mp3";
+  load(st);
+})();
+</script>
+</body>
+</html>

@@ -13,6 +13,7 @@ Autocut does the slow parts of a YouTube video essay for you:
 2. **Derush**: keeps the best take of every line of your script and removes the silences, false starts and stumbles. You get a Premiere sequence, with every sentence marked.
 3. **Illustrations**: finds pictures and videos for every paragraph — from the links in your script, archives and museums (Wikimedia, Europeana, the Met, David Rumsey maps), the web and YouTube — then an AI looks at them and drops the off-topic ones. You tick what you want on a contact sheet, and the files land in your sequence, on the sentence they illustrate, with the credits written for you — or you drag a thumbnail straight onto the Premiere timeline. Each picture shows its date, and the AI is told which period each paragraph is about, so photos of earlier, similar events get flagged.
 4. **Storyboard**: describe a style (« 3D lowpoly like Fern and Lemmino, plus clean motion design for maps and numbers ») and get a shot-by-shot plan of what to create: what we see, camera moves, image and video prompts, a scene to build in Blender. Each shot appears as a card at its place in your timeline.
+5. **Sounds**: whooshes, clicks, pops and typing on everything that moves on screen in your finished edit — clips appearing, transitions, zooms, and the animations inside your rendered motion design. Takes vary, levels are set, and you hear and adjust every sound on a page with the waveforms before they go into Premiere on their own tracks. Sounds come from your own folders (your Epidemic, Artlist or Envato downloads), your Epidemic Sound subscription, or a free built-in bank. It learns your habits from the sounds already in your edit.
 
 Each step also works on its own.
 
@@ -28,6 +29,8 @@ flowchart LR
     D --> P[("Premiere Pro")]
     I --> P
     B --> P
+    P -- "finished edit (.xml)" --> X["5 · Sounds"]
+    X --> P
     AI{{"AI: Gemini · Claude · ChatGPT"}} -.-> I
     AI -.-> B
 ```
@@ -76,6 +79,7 @@ Everything starts from your **script**: a text or Markdown file, one `##` headin
 - **Synchro**: drop the rushes (or their folder), click **Synchroniser**, import the `.sync.xml` in Premiere.
 - **Derush**: drop the sequence (the Synchro result, or any sequence exported from Premiere with *File › Export › Final Cut Pro XML*) and the script, click **Derusher**. It also continues a half-done derush without touching your cuts.
 - **Illustrations**: **Collecter**, tick pictures on the contact sheet that opens in its own window (hover a thumbnail to enlarge it, ⬇ to download one, drag it into Premiere to place it by hand), **Télécharger la sélection**, then **Placer** writes the XML with each picture at its sentence — or, in Premiere, *Window › UXP plugins › Autocut* › **Placer les illustrations**.
+- **Sons**: drop the finished edit (*File › Export › Final Cut Pro XML*), add your sound folders or your Epidemic key, **Analyser le montage**. The editor opens: Space plays the voice with the sounds, ←/→ jumps from sound to sound, A/Z changes the take, the density and the rules (which sound for which moment) redo the plan at once and keep what you adjusted. **Placer dans Premiere** writes the `.xml`.
 - **Storyboard**: write the style, **Créer le storyboard**. Edit or redo any shot on the page that opens; place the cards with the Premiere panel (**Quoi › Storyboard**) or import the `.xml`.
 
 Re-run any step after re-editing: Autocut finds every sentence again wherever it ended up in your edit.

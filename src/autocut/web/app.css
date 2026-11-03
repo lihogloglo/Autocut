@@ -372,3 +372,20 @@ body.dragging .veil { opacity: 1; }
   header h1 { font-size: 22px; }
   .drop { padding: 18px 16px; }
 }
+
+/* Sons */
+.sfx-edit { margin-top: 12px; }
+.sfx-edit.over, #sfx-srcs.over { border-color: var(--accent); background: var(--accent-soft); }
+.sub-h { margin: 22px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: transparent; padding: 6px 14px; cursor: pointer; font: inherit; color: var(--text); }
+.seg button.on { background: var(--accent); color: #fff; }
+.dens { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.srcfold { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.srcfold .chip { display: inline-flex; align-items: center; gap: 4px; background: var(--surface-2); border-radius: 99px; padding: 2px 4px 2px 10px; font-size: 12.5px; max-width: 100%; }
+.srcfold .chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
+.keyrow.inline { display: flex; gap: 6px; margin-top: 6px; }
+.keyrow.inline input { flex: 1; min-width: 0; }
+.kinds-sum { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+.kinds-sum span { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; }
+.kinds-sum i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }

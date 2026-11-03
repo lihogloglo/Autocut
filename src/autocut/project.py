@@ -16,10 +16,10 @@ MEDIA_EXT = {".mp4", ".mov", ".mxf", ".mkv", ".avi", ".mts", ".m2ts", ".wav", ".
 
 # What belongs to one project (the rest of app.json is the user's settings, shared by all projects).
 KEYS = ("script", "rushes", "sync_out", "xml", "sequence", "mode", "keep", "derush_out", "place_xml",
-        "broll_out", "sb_refs", "step")
+        "broll_out", "sb_refs", "sfx_xml", "step")
 EMPTY = {"script": "", "rushes": [], "sync_out": "", "xml": "", "sequence": "", "mode": "continue", "keep": None,
-         "derush_out": "", "place_xml": "", "broll_out": "", "sb_refs": [], "step": "sync"}
-PATHS = ("script", "sync_out", "xml", "derush_out", "place_xml", "broll_out")
+         "derush_out": "", "place_xml": "", "broll_out": "", "sb_refs": [], "sfx_xml": "", "step": "sync"}
+PATHS = ("script", "sync_out", "xml", "derush_out", "place_xml", "broll_out", "sfx_xml")
 
 
 def _is_script(f: Path) -> bool:

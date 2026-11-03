@@ -40,7 +40,8 @@ DEFAULTS = {
     "opts": {"model": "large-v3", "max_pause": 0.6, "pad_in": 0.12, "pad_out": 0.25,
              "shots": True, "search": True, "web": True, "videos": True, "llm": "auto", "judge": True, "brief": "", "quality": "best",
              "sb_style": "", "sb_pace": 6, "lang": "auto",
-             "shot_height": 4000, "segment": 30, "full_max": 10},
+             "shot_height": 4000, "segment": 30, "full_max": 10,
+             "sfx_folders": [], "sfx_density": 2, "sfx_sources": {"folder": True, "epidemic": True, "earshot": True}},
 }
 
 
@@ -231,7 +232,7 @@ class Api:
         return {"state": s, "project": self._project(), "sequences": self._sequences(), "scan": self.scan(),
                 "sources": self._sources(),
                 "job": {"running": self._job.running, "step": self._job.step}, "checks": self._checks,
-                "keys": self._keys(), "ai": self._ai, "storyboard": self._storyboard()}
+                "keys": self._keys(), "ai": self._ai, "storyboard": self._storyboard(), "sfx": self._sfx()}
 
     def _project(self) -> dict:
         s = self._state
@@ -307,8 +308,9 @@ class Api:
     def _keys() -> dict:
         """Which API keys are saved, shown masked: the key itself never goes to the page."""
         from .sourcing.llm import gemini_key
-        k = gemini_key()
-        return {"gemini": f"{k[:4]}…{k[-4:]}" if len(k) > 12 else (tr("enregistrée") if k else "")}
+        from .sfx.library import epidemic_key
+        mask = lambda k: f"{k[:4]}…{k[-4:]}" if len(k) > 12 else (tr("enregistrée") if k else "")   # noqa: E731
+        return {"gemini": mask(gemini_key()), "epidemic": mask(epidemic_key())}
 
     def _sequences(self) -> list[str]:
         if not self._state["xml"]:
@@ -402,6 +404,83 @@ class Api:
             info["xml"] = str(xml) if xml else ""
         return info
 
+    # sound effects
+    def _sfx_edit(self) -> str:
+        """The edit the sounds go on: the one chosen here, else the sequence the illustrations use."""
+        s = self._state
+        return s["sfx_xml"] or (s["place_xml"] if s["place_xml"] and not s["place_xml"].lower().endswith(".autocut.xml")
+                                 else "") or s["place_xml"] or s["derush_out"]
+
+    def _sfx_out(self) -> Path | None:
+        edit = self._sfx_edit()
+        if not edit and not self._state["script"]:
+            return None
+        stem = Path(self._state["script"] or edit).stem
+        folder = Path(self._state["project"]) if self._state["project"] else Path(self._state["script"] or edit).parent
+        return folder / f"{stem} - sons"
+
+    def _sfx(self) -> dict:
+        out = self._sfx_out()
+        info = {"edit": self._sfx_edit(), "out": str(out or ""), "exists": False, "cues": 0, "kinds": {}, "xml": "",
+                "earshot": True}
+        if out and (out / "cues.json").exists():
+            try:
+                data = json.loads((out / "cues.json").read_text(encoding="utf-8"))
+                on = [c for c in data["cues"] if c.get("on")]
+                info.update(exists=True, cues=len(on), edited=sum(1 for c in data["cues"] if c.get("edited")))
+                for c in on:
+                    info["kinds"][c["kind"]] = info["kinds"].get(c["kind"], 0) + 1
+                xml = out / f"{data.get('title') or ''} Sons.xml"
+                info["xml"] = str(xml) if xml.exists() else ""
+            except (OSError, ValueError, KeyError):
+                pass
+        return info
+
+    def open_sfx(self) -> dict:
+        out = self._sfx_out()
+        if not out or not (out / "cues.json").exists():
+            return {"ok": False, "message": tr("Analysez d'abord le montage.")}
+        import webview
+
+        from .sfx.page import serve
+        if getattr(self, "_sfx_server", None):
+            self._sfx_server.shutdown()
+        self._sfx_server, url = serve(out)
+        win = getattr(self, "_sfx_window", None)
+        if win is not None:
+            try:
+                win.load_url(url)
+                win.restore()
+                win.show()
+                return {"ok": True}
+            except Exception:
+                self._sfx_window = None
+        self._sfx_window = webview.create_window(tr("Sons"), url, width=1500, height=900, min_size=(800, 500))
+
+        def closed():
+            self._sfx_window = None
+        self._sfx_window.events.closed += closed
+        return {"ok": True}
+
+    def sfx_folder(self, folder: str = "", remove: bool = False) -> dict:
+        """A folder of sounds (the user's downloads, packs): added once, used by every project."""
+        o = self._state["opts"]
+        folders = list(o.get("sfx_folders") or [])
+        if remove:
+            folders = [f for f in folders if f != folder]
+        else:
+            if not folder:
+                import webview
+                picked = self._window.create_file_dialog(webview.FileDialog.FOLDER)
+                if not picked:
+                    return self.view()
+                folder = picked if isinstance(picked, str) else picked[0]
+            if folder not in folders and Path(folder).is_dir():
+                folders.append(folder)
+        o["sfx_folders"] = folders
+        self._save()
+        return self.view()
+
     # interface language
     def i18n(self) -> dict:
         from .i18n import NAMES, catalog, ui_lang
@@ -431,7 +510,7 @@ class Api:
 
     def poll(self) -> dict:
         """Cheap refresh while the contact sheet or the storyboard is open in the browser."""
-        return {"sources": self._sources(), "storyboard": self._storyboard()}
+        return {"sources": self._sources(), "storyboard": self._storyboard(), "sfx": self._sfx()}
 
     # AI engines
     def ai_check(self) -> list[dict]:
@@ -497,7 +576,10 @@ class Api:
                 s["script"] = str(p)
                 notes.append(tr("Script : {name}", name=p.name))
                 continue
-            if p.is_file() and ext == ".xml":
+            if p.is_file() and ext == ".xml" and zone in ("sfx", "sfx-src"):
+                s["sfx_xml"] = str(p)
+                notes.append(tr("Montage pour les sons : {name}", name=p.name))
+            elif p.is_file() and ext == ".xml":
                 if zone in ("sources", "storyboard"):
                     s["place_xml"] = str(p)
                     notes.append(tr("Séquence pour les timecodes : {name}", name=p.name))
@@ -506,6 +588,9 @@ class Api:
                     notes.append(tr("Séquence pour le derush : {name}", name=p.name))
                     if zone != "derush":
                         s["step"] = "derush"
+            elif p.is_dir() and zone == "sfx-src":
+                self.sfx_folder(str(p))
+                notes.append(tr("Dossier de sons : {name}", name=p.name))
             elif p.is_file() and ext in IMAGE_EXT and zone == "storyboard":
                 if str(p) not in s["sb_refs"]:
                     s["sb_refs"].append(str(p))
@@ -529,7 +614,8 @@ class Api:
                  "derush": (tr("Séquence Premiere") + " (*.xml)",),
                  "sources": (tr("Derush ou montage") + " (*.xml)",),
                  "script": (tr("Script") + " (*.md;*.txt;*.docx)",),
-                 "storyboard": (tr("Images de référence") + " (*.jpg;*.jpeg;*.png;*.webp)",)}.get(zone, ())
+                 "storyboard": (tr("Images de référence") + " (*.jpg;*.jpeg;*.png;*.webp)",),
+                 "sfx": (tr("Montage Premiere") + " (*.xml)",)}.get(zone, ())
         if folder:
             paths = self._window.create_file_dialog(webview.FileDialog.FOLDER)
         else:
@@ -564,6 +650,17 @@ class Api:
         """Check an API key with its service, then save it (empty: forget it)."""
         from .sourcing import llm
         value = (value or "").strip()
+        if name == "epidemic":
+            if value:
+                try:
+                    from .sfx.library import Epidemic
+                    Epidemic(value).search("whoosh", "whoosh", n=1)
+                except Exception as e:
+                    return {"ok": False, "message": tr("{engine} : {error}", engine="Epidemic Sound", error=e),
+                            "view": self.view()}
+            llm.save_key(name, value)
+            return {"ok": True, "message": tr("Clé Epidemic enregistrée.") if value else tr("Clé Epidemic oubliée."),
+                    "view": self.view()}
         if name != "gemini":
             return {"ok": False, "message": tr("Clé inconnue.")}
         if value:
@@ -624,6 +721,17 @@ class Api:
             if edit:
                 args += ["--edit", str(edit)]
             self._job.start("place", args, self._place_done)
+        elif step == "sfx":
+            edit, out = self._sfx_edit(), self._sfx_out()
+            if not edit:
+                return {"ok": False, "message": tr("Déposez d'abord le montage (.xml).")}
+            src = o.get("sfx_sources") or {}
+            order = [k for k in ("folder", "epidemic", "earshot") if src.get(k, True)] or ["earshot"]
+            args = ["autocut.sfx", "plan", edit, "--out", str(out), "--title", Path(s["script"] or edit).stem,
+                    "--density", str(o.get("sfx_density") or 2), "--sources", ",".join(order), "--keep-edits"]
+            for f in o.get("sfx_folders") or []:
+                args += ["--folder", f]
+            self._job.start("sfx", args, self._sfx_done)
         elif step == "storyboard":
             if not s["script"]:
                 return {"ok": False, "message": tr("Déposez d'abord le script.")}
@@ -712,6 +820,12 @@ class Api:
             lines = [ln for ln in report.read_text(encoding="utf-8-sig").splitlines() if ln.strip()]
             summary = next((ln for ln in lines if ln.startswith("Source ")), "")
         return tr("{name} écrit. {summary}", name=Path(result).name, summary=summary).strip()
+
+    def _sfx_done(self, result: str) -> str:
+        self._push()
+        self.open_sfx()
+        info = self._sfx()
+        return tr("{n} sons placés : l'éditeur s'ouvre.", n=info["cues"])
 
     def _storyboard_done(self, result: str) -> str:
         self._push()
@@ -834,6 +948,7 @@ def main(tab: int = 0) -> None:
     window.events.loaded += lambda: threading.Thread(target=api.ai_check, daemon=True).start()
     window.events.closing += lambda: api._job.stop()
     window.events.closed += lambda: api._sheet_window and api._sheet_window[0].destroy()
+    window.events.closed += lambda: getattr(api, "_sfx_window", None) and api._sfx_window.destroy()
     from .sourcing import bridge
     bridge.start(lambda kind="sources": (api._sb_out() if kind == "storyboard" else api._sources_out(),
                                          Path(api._state["derush_out"]) if api._state["derush_out"] else None))

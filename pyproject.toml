@@ -11,6 +11,7 @@ dependencies = [
     "anthropic>=2.3.0",
     "beautifulsoup4>=4.15.0",
     "ddgs>=9.16.1",
+    "earshot @ git+https://github.com/Leonxlnx/earshot@v0.4.0",
     "fastembed>=0.9.1",
     "faster-whisper>=1.2.1",
     "httpx>=0.28.1",
@@ -24,6 +25,9 @@ dependencies = [
     "python-docx>=1.2.0",
     "pywebview>=6.2.1",
     "rapidfuzz>=3.14.6",
+    "scipy>=1.11",
+    "soundfile>=0.12",
+    "soxr>=0.3",
     "static-ffmpeg>=3.0",
     "yt-dlp>=2026.10.26",
 ]
@@ -36,6 +40,17 @@ autocut-storyboard = "autocut.storyboard:main"
 [project.gui-scripts]
 autocut-gui = "autocut.gui:main"
 autocut-sources-gui = "autocut.gui:main_sources"
+
+[tool.uv]
+# earshot (the built-in sound bank) renders with numpy + scipy only: its listening models stay out
+override-dependencies = [
+    "torch ; sys_platform == 'never'",
+    "transformers ; sys_platform == 'never'",
+    "librosa ; sys_platform == 'never'",
+    "scikit-learn ; sys_platform == 'never'",
+    "matplotlib ; sys_platform == 'never'",
+    "pyloudnorm ; sys_platform == 'never'",
+]
 
 [build-system]
 requires = ["uv_build>=0.13.1,<0.14.0"]

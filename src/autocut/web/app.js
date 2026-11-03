@@ -22,8 +22,9 @@ function hue(path) {
 }
 const AUDIO = /\.(wav|bwf|aif|aiff|flac|mp3|m4a)$/i;
 const VIDEO = /\.(mp4|mov|mxf|mkv|avi|mts|m2ts)$/i;
-const STEP_OF_JOB = { sync: "sync", derush: "derush", collect: "sources", place: "sources", storyboard: "storyboard", setup: "setup" };
-const JOB_TITLE = { sync: "Synchro", derush: "Derush", collect: "Collecte des illustrations", place: "Placement sur le montage", storyboard: "Storyboard", setup: "Installation" };
+const STEP_OF_JOB = { sync: "sync", derush: "derush", collect: "sources", place: "sources", storyboard: "storyboard", sfx: "sfx", setup: "setup" };
+const JOB_TITLE = { sync: "Synchro", derush: "Derush", collect: "Collecte des illustrations", place: "Placement sur le montage", storyboard: "Storyboard", sfx: "Sons", setup: "Installation" };
+const SFX_KINDS = [["whoosh", "Whoosh", "#4a6cf7"], ["click", "Clic", "#1f9d63"], ["pop", "Pop", "#e8833a"], ["typing", "Clavier", "#9b59b6"], ["hit", "Impact", "#d6453d"]];
 const AUTO_ORDER = ["gemini", "claude", "claude-code", "codex", "antigravity", "ollama"];
 const ENGINE_CHOICES = [["auto", "Auto : la première IA connectée"], ["gemini", "Gemini (clé API)"],
   ["claude-code", "Claude (abonnement Pro / Max)"], ["codex", "ChatGPT (abonnement, via Codex)"],
@@ -33,6 +34,8 @@ const LABELS_FR = [
   [/^syncing/, "Synchronisation par le son"], [/^reading/, "Lecture de la séquence"],
   [/^transcribing/, "Transcription"], [/^aligning/, "Alignement sur le script"],
   [/^cutting/, "Découpe"], [/^writing Premiere XML/, "Écriture du XML Premiere"],
+  [/^looking inside the rendered clips/, "Animations dans les clips"], [/^gathering the sounds/, "Préparation des sons"],
+  [/^placing/, "Placement des sons"], [/^voice for the page/, "Voix pour l'éditeur"],
 ];
 
 function tc(s) {
@@ -85,7 +88,7 @@ const app = {
   },
   dropZone() {
     // scripts are recognised by their extension, so the script card stands for its page
-    const page = { sync: "sync", derush: "derush", sources: "sources", storyboard: "storyboard" }[this.step] || "sync";
+    const page = { sync: "sync", derush: "derush", sources: "sources", storyboard: "storyboard", sfx: "sfx" }[this.step] || "sync";
     return this.hoverZone && this.hoverZone !== "script" ? this.hoverZone : page;
   },
 
@@ -131,6 +134,8 @@ const app = {
       const r = await this.api.open_storyboard();
       this.toast(r.ok ? t("Storyboard ouvert dans le navigateur.") : r.message);
     });
+    $("#open-sfx").addEventListener("click", async () => { const r = await this.api.open_sfx(); if (!r.ok) this.toast(r.message); });
+    $$("#sfx-density button").forEach((b) => b.addEventListener("click", () => this.set("opts.sfx_density", +b.dataset.d)));
     $("#ai-recheck").addEventListener("click", () => { $("#ai-list").innerHTML = `<li class="muted">${esc(t("Vérification…"))}</li>`; this.api.ai_check(); });
     $("#ai-engine").innerHTML = ENGINE_CHOICES.map(([v, l]) => `<option value="${v}">${esc(t(l))}</option>`).join("");
     const saveKey = async () => {
@@ -206,16 +211,27 @@ const app = {
       if (r.view) this.render(r.view);
       if (r.ok) this.show(this.view.state.step, false); else this.toast(r.message);
     }
+    else if (what === "sfx-folder") this.render(await this.api.sfx_folder(arg || "", false));
+    else if (what === "sfx-folder-rm") this.render(await this.api.sfx_folder(arg, true));
+    else if (what === "sfx-src") { const src = { ...(this.view.state.opts.sfx_sources || {}) }; src[arg] = src[arg] === false; await this.set("opts.sfx_sources", src); }
+    else if (what === "sfx-key") {
+      const input = $("#ep-key"), r = await this.api.set_key("epidemic", input ? input.value : "");
+      if (r.view) this.render(r.view);
+      this.toast(r.message);
+    }
     else if (what === "proj-forget") { this.render(await this.api.forget_project(arg)); this.menu(true); }
     else if (what === "proj-reveal") { this.menu(false); this.api.open_path(this.view.project.path); }
   },
   async poll() {
-    if (!["sources", "storyboard"].includes(this.step) || !this.view) return;
+    if (!["sources", "storyboard", "sfx"].includes(this.step) || !this.view) return;
     const r = await this.api.poll();
     if (JSON.stringify(r.sources) !== JSON.stringify(this.view.sources) ||
-        JSON.stringify(r.storyboard) !== JSON.stringify(this.view.storyboard)) {
+        JSON.stringify(r.storyboard) !== JSON.stringify(this.view.storyboard) ||
+        JSON.stringify(r.sfx) !== JSON.stringify(this.view.sfx)) {
       this.view.sources = r.sources;
       this.view.storyboard = r.storyboard;
+      this.view.sfx = r.sfx;
+      this.renderSfx();
       this.renderSources();
       this.renderStoryboard();
       this.renderNav();
@@ -234,6 +250,7 @@ const app = {
     this.renderDerush();
     this.renderSources();
     this.renderStoryboard();
+    this.renderSfx();
     this.renderChecks();
     this.renderAI();
     this.renderNav();
@@ -294,7 +311,9 @@ const app = {
     const cur = this.currentEngine();
     // the subscription engines are the ones reached through their app (cli); "how" may be translated
     info.ai = !this.view.ai ? t("vérification…") : cur ? (cur.cli ? t("{engine} (abonnement)", { engine: cur.label }) : cur.label) : t("aucune connectée");
-    const done = { sync: !!s.sync_out, derush: !!s.derush_out, sources: !!src.exported, storyboard: !!sb.beats, ai: !!cur };
+    const fx = this.view.sfx || {};
+    info.sfx = fx.cues ? t("{n} sons", { n: fx.cues }) : t("le montage → les sons");
+    const done = { sync: !!s.sync_out, derush: !!s.derush_out, sources: !!src.exported, storyboard: !!sb.beats, sfx: !!fx.xml, ai: !!cur };
     $$(".step").forEach((b) => {
       const k = b.dataset.step;
       $("small", b).textContent = info[k];
@@ -502,6 +521,40 @@ const app = {
     $("#go-sb").disabled = !s.script || this.job.running;
     $("#go-sb").textContent = sb.beats ? t("Recréer le storyboard") : t("Créer le storyboard");
     $("#open-sb").disabled = !sb.beats;
+  },
+
+  renderSfx() {
+    if (!this.view) return;
+    const s = this.view.state, o = s.opts, fx = this.view.sfx || {}, keys = this.view.keys || {};
+    const edit = fx.edit, own = !!s.sfx_xml;
+    $("#sfx-edit").className = `pslot sfx-edit ${edit ? "set" : ""}`;
+    $("#sfx-edit").innerHTML = edit
+      ? `<span class="kind video">XML</span><span class="fname"><b title="${esc(edit)}">${esc(base(edit))}</b><small>${own ? t("votre montage") : t("le même que les illustrations")}</small></span>
+         <button class="btn small" data-pick="sfx">${t("Changer…")}</button>${own ? `<button class="icon-btn" title="${esc(t("Retirer"))}" data-remove="sfx_xml">✕</button>` : ""}`
+      : `<span class="muted" style="flex:1">${t("Glissez le montage fini (.xml) : Premiere › Fichier › Exporter › Final Cut Pro XML")}</span>
+         <button class="btn small" data-pick="sfx">${t("Choisir…")}</button>`;
+    const on = (k) => (o.sfx_sources || {})[k] !== false;
+    const row = (k, title, detail, extra = "") => `<li class="item"><button class="dot ${on(k) ? "ok" : "opt"}" data-act="sfx-src" data-arg="${k}"
+        title="${esc(on(k) ? t("Utilisée — cliquer pour l'ignorer") : t("Ignorée — cliquer pour l'utiliser"))}" style="border:0;cursor:pointer">${on(k) ? "✓" : "–"}</button>
+      <span class="ctext"><b>${title}</b><span>${detail}</span>${extra}</span></li>`;
+    const folders = o.sfx_folders || [];
+    $("#sfx-srcs").innerHTML =
+      row("folder", t("Vos dossiers"), folders.length ? t("Les sons sont triés par leur nom (whoosh, click, pop, typing…).") : t("Vos téléchargements Epidemic, Artlist, Envato, vos packs : glissez un dossier ici."),
+        `<div class="srcfold">${folders.map((f) => `<span class="chip" title="${esc(f)}"><span>${esc(f)}</span><button class="icon-btn" data-act="sfx-folder-rm" data-arg="${esc(f)}">✕</button></span>`).join("")}
+           <button class="btn small" data-act="sfx-folder">${t("Ajouter un dossier…")}</button></div>`) +
+      row("epidemic", "Epidemic Sound", keys.epidemic ? t("Connecté avec votre clé ({key}). Les sons choisis sont téléchargés dans le dossier du projet.", { key: keys.epidemic })
+        : t("Votre abonnement, avec une clé API : epidemicsound.com › Compte › API keys."),
+        keys.epidemic ? "" : `<div class="keyrow inline"><input type="password" id="ep-key" placeholder="${esc(t("Collez la clé"))}" autocomplete="off" spellcheck="false">
+          <button class="btn small" data-act="sfx-key">${t("Enregistrer")}</button></div>`) +
+      row("earshot", t("Banque intégrée"), t("Sons fabriqués par code (earshot, libres de droits) : jamais deux fois la même prise."));
+    $$("#sfx-density button").forEach((b) => b.classList.toggle("on", +b.dataset.d === (o.sfx_density || 2)));
+    $("#go-sfx").disabled = !edit || this.job.running;
+    $("#go-sfx").textContent = fx.exists ? t("Analyser à nouveau") : t("Analyser le montage");
+    $("#open-sfx").disabled = !fx.exists;
+    const sum = fx.exists ? `<div class="kinds-sum">${SFX_KINDS.filter(([k]) => fx.kinds[k]).map(([k, n, c]) => `<span><i style="background:${c}"></i>${t(n)} <b>${fx.kinds[k]}</b></span>`).join("")}</div>` : "";
+    $("#res-sfx").innerHTML = fx.xml ? this.resultCard(fx.xml, t("Fichier › Importer dans Premiere : les sons seuls, et votre montage avec les sons."), sum)
+      : fx.exists ? `<div class="r-head">${t("{n} sons prêts", { n: fx.cues })}${fx.edited ? " · " + t("{n} retouchés", { n: fx.edited }) : ""}</div>${sum}
+          <p class="r-sum">${t("Écoutez et ajustez dans l'éditeur, puis « Placer dans Premiere ». Analyser à nouveau garde vos retouches.")}</p>` : "";
   },
 
   renderChecks() {

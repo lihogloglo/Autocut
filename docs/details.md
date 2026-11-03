@@ -16,6 +16,7 @@ there is no NVIDIA card — much slower).
 | Illustrations: place | picks + `.autocut.xml` and/or your current edit (FCP7 XML) | B-roll at the sentence timecodes | re-run any time after re-editing |
 | Illustrations: place, from Premiere | picks + the sequence open in Premiere ([panel](#premiere-panel)) | B-roll straight into the sequence | one click after each re-edit, no XML |
 | Storyboard | script + a style in words (+ reference images) | a beat-by-beat storyboard: what to make, prompts, scenes; cards placed on the edit | yes: durations estimated without a derush |
+| Sounds | a finished edit (FCP7 XML) + sound sources | whooshes, clicks, pops, typing on what moves on screen, on their own tracks | yes: any edit exported from Premiere |
 
 The link between steps is the `Sxxx` sentence number: part 1 writes it in a marker over
 every take, part 2 files every illustration under it.
@@ -308,6 +309,65 @@ uv run autocut-storyboard make "episode 12.md" --style "…" [--ref frame.png] [
 uv run autocut-storyboard place "episode 12 - storyboard" [--edit montage.xml]
 uv run autocut-storyboard page "episode 12 - storyboard"
 ```
+
+## Sounds
+
+`python -m autocut.sfx plan <edit.xml> --out "<video> - sons"` then `python -m autocut.sfx place "<video> - sons"`
+(the window's **Sons** page runs both; the editor page between them is `sfx/page.py` + `web/sons.html`).
+
+**What gets a sound** (`sfx/events.py`, read from the XML, no pixels): a clip starting on V2 and above — *full
+screen* or *element*, from its size and Motion scale —, a title, a video transition (the sound peaks at its middle),
+a fast Motion move (scale, position or rotation keyframes over less than 1.6 s; slow Ken Burns drifts are left alone),
+a clip leaving with nothing in its place, an adjustment layer. Clips with `-1` start or end sit in a transition, which
+gives their time; nests are read at their place. **Animations baked inside rendered clips** (`sfx/motion.py`): each
+V2+ video's used range is decoded small and gray, split in regions; a region that jumps above its own recent past
+after being still is an event (a cut, an element popping in, a slide), and runs of small steps that stay are text
+being typed. Live footage and screen recordings with a moving cursor are kept quiet by the "still before" and "not busy"
+rules. Cached per file and range. Premiere's *Transform* effect is lost in the FCP7 export (Premiere says so in its
+translation report): its moves are only found through the pixels.
+
+On a test edit (18.6 min, 143 sounds placed by hand), 112 of the 143 moments are found (58 from the XML, 54 inside
+rendered clips); the rest are typing over still screens and sounds with nothing visible.
+
+**Which sound** (`sfx/plan.py`): a rule per kind of moment (*Règles* on the editor page). Defaults: transitions,
+full-screen clips, moves and big animations get a whoosh, elements a pop, small animations a click, text a typing run.
+When the edit already has sounds, the rules **learn the editor's habits**: for each kind of moment with at least 4 of
+their sounds and a 60 % majority, their choice wins (the sound's kind comes from its file name).
+
+**Density**: every moment has a strength (bigger and more sudden = stronger). *Léger* keeps strength ≥ 0.7 and sounds
+0.5 s apart, *Normal* ≥ 0.45 and 0.25 s, *Dense* ≥ 0.25 and 0.12 s; a whoosh is never closer than 0.6 s to another.
+Moments where the edit already has a sound are left alone. On the test edit, *Normal* adds about 21 sounds a minute
+(the hand edit had 7.7) and covers 79 % of the hand-placed moments.
+
+**Takes and levels**: up to 8 takes per kind, from the sources in order — your folders, Epidemic, the built-in bank
+— rotating in shuffled rounds (every take before any repeats, never the same twice in a row), each level varied by
+±1.5 dB. Each take is measured once: its **sync point** (the attack for clicks, pops, keys and hits, the loudest
+moment for a whoosh) lands on the frame — a whoosh peaks 40 ms after it. Levels aim at a peak per kind (whoosh −15 dBFS,
+pop −17, click −19, typing −21, hit −13), a little louder for bigger changes, 4 dB lower for exits; Premiere caps clip
+gain at +6 dB.
+
+**Sources** (`sfx/library.py`):
+- **Your folders**: every sound file whose name says its kind (whoosh / swish / swipe…, click / switch / tick…,
+  pop / blip / bubble…, typing / keyboard…, impact / hit / boom…, in English and French). Takes longer than
+  whoosh 1.8 s, click 0.8 s, pop 1.2 s, hit 3.5 s stay out of the automatic pool (search finds them).
+- **Epidemic Sound**: your own API key (epidemicsound.com › Account › API keys, valid a year; Epidemic gives no
+  sign-in to other apps). Through Epidemic's official MCP server: `SearchSoundEffects` (free) and
+  `DownloadSoundEffect` (your subscription), WAV saved in `<video> - sons/médias`. The key is kept in
+  `%APPDATA%\autocut\keys.json` (or `EPIDEMIC_KEY` in the environment / `.env`).
+- **Built-in bank**: [earshot](https://github.com/Leonxlnx/earshot) (MIT): 67 whooshes, clicks, pops, typing runs and
+  impacts made in code, rendered on your PC (no network), cached in `%LOCALAPPDATA%\autocut\sfx\earshot`.
+  Only its renderer is installed (numpy + scipy; its listening models are left out).
+
+**The editor page**: the voice (rendered from the edit's voice track) and one row per kind, each sound drawn as its
+waveform with its sync point; the sounds already in the edit in grey. Click a sound: the picture where it lands, its
+take with the waveform, ◀ ▶ other takes (A / Z), *En contexte* (voice 1.5 s before to 2 s after, with every sound),
+kind, level, ±1 frame, remove; search your folders, the bank and Epidemic for another sound (Epidemic previews play
+before download). Drag a sound to move it, double-click a row to add one. Changing density, volume or rules plans
+again at once from `events.json` and `pools.json`, keeping every sound touched by hand.
+
+**Output**: `<video> - sons/<title> Sons.xml` with two sequences — the sounds alone (paste them on the edit) and a
+copy of the edit with the sounds on new tracks under its own — one stereo track pair per kind (Whoosh, Clics, Pops,
+Clavier, Impacts), each clip with its level as Premiere's Audio Levels. Files keep their names; nothing is re-encoded.
 
 ## AI engines
 
