@@ -69,7 +69,7 @@ wheels = [
 
 [[package]]
 name = "autocut"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -101,7 +101,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=2.3.0" },
     { name = "beautifulsoup4", specifier = ">=4.15.0" },
     { name = "ddgs", specifier = ">=9.16.1" },
-    { name = "earshot", git = "https://github.com/Leonxlnx/earshot?rev=v0.4.0" },
+    { name = "earshot", url = "https://github.com/Leonxlnx/earshot/archive/refs/tags/v0.4.0.zip" },
     { name = "fastembed", specifier = ">=0.9.1" },
     { name = "faster-whisper", specifier = ">=1.2.1" },
     { name = "httpx", specifier = ">=0.28.1" },
@@ -595,7 +595,7 @@ wheels = [
 [[package]]
 name = "earshot"
 version = "0.4.0"
-source = { git = "https://github.com/Leonxlnx/earshot?rev=v0.4.0#591fa3e028032e6dce56620a20e932e35667e8d8" }
+source = { url = "https://github.com/Leonxlnx/earshot/archive/refs/tags/v0.4.0.zip" }
 dependencies = [
     { name = "librosa", marker = "sys_platform == 'never'" },
     { name = "matplotlib", marker = "sys_platform == 'never'" },
@@ -609,6 +609,26 @@ dependencies = [
     { name = "torch", marker = "sys_platform == 'never'" },
     { name = "transformers", marker = "sys_platform == 'never'" },
 ]
+sdist = { hash = "sha256:bcb873294ea8c17cf3986da1c9e01d5a5c6bbc7bd66acb1dc071046960aeea8a" }
+
+[package.metadata]
+requires-dist = [
+    { name = "librosa", specifier = ">=0.10" },
+    { name = "matplotlib", specifier = ">=3.8" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "pillow", specifier = ">=10" },
+    { name = "pyloudnorm", specifier = ">=0.1" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
+    { name = "requests", marker = "extra == 'llm'", specifier = ">=2.31" },
+    { name = "scikit-learn", specifier = ">=1.3" },
+    { name = "scipy", specifier = ">=1.11" },
+    { name = "soundfile", specifier = ">=0.12" },
+    { name = "soxr", specifier = ">=0.3" },
+    { name = "torch", specifier = ">=2.6" },
+    { name = "transformers", specifier = ">=4.40" },
+]
+provides-extras = ["mcp", "llm", "dev"]
 
 [[package]]
 name = "fastembed"

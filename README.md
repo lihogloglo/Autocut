@@ -52,12 +52,14 @@ flowchart LR
 
 ## Install
 
-1. **Download Autocut**: on this page, green **Code** button › **Download ZIP**, then unzip it where you keep your tools (or `git clone` it).
-2. **Double-click `Autocut.bat`**. The first time it installs what it needs (a few minutes), puts an **Autocut** shortcut on your desktop and opens the window. Afterwards, use the shortcut.
-3. In the window, open **Installation** (bottom left) and install what is missing — ffmpeg, the speech model, the Premiere panel. One click each.
-4. Open **IA** and connect an AI.
+1. **Download `Autocut-Setup.exe`** from the [latest release](https://github.com/lihogloglo/Autocut/releases/latest) and run it. No admin rights needed. It installs Python and Autocut's libraries (about 2 GB, a few minutes), adds Autocut to the Start menu and the desktop, and opens it.
+   Windows may show « Windows protected your PC » (the installer is not signed): **More info › Run anyway**.
+2. In the window, open **Installation** (bottom left) and install what is missing — ffmpeg, the speech model, the Premiere panel. One click each.
+3. Open **IA** and connect an AI.
 
-To update: download the new version over the old one (or `git pull`) and double-click `Autocut.bat` again.
+To update: **Installation › Autocut › Update** (it closes, updates and reopens). To uninstall: Windows Settings › Apps › Autocut; your settings and downloaded models stay in `%APPDATA%\autocut` and `%LOCALAPPDATA%\autocut`.
+
+From the source instead (to work on the code): `git clone` this repository and double-click `Autocut.bat` (installs uv and the packages, puts a shortcut on the desktop); update with `git pull` and `Autocut.bat` again.
 
 ## Connecting an AI
 

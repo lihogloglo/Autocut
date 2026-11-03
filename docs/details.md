@@ -24,9 +24,13 @@ every take, part 2 files every illustration under it.
 
 ## Window (for everyone)
 
-Double-click **`Autocut.bat`** once: it installs uv and the Python packages, puts an
-**Autocut** shortcut (🪓) on the desktop and opens the window. Afterwards, use the shortcut; run
-the .bat again only after updating the code. The rest — ffmpeg, the transcription model (~3 GB),
+Install with **`Autocut-Setup.exe`** (Releases page; `installer/Autocut.iss`, built by
+`.github/workflows/release.yml` on a `v*` tag matching `pyproject.toml`): per user, no admin, into
+`%LOCALAPPDATA%\Programs\Autocut`; it runs `uv sync --frozen` (uv bundled, its own Python 3.12) with a progress page,
+adds Start menu and desktop shortcuts carrying the window's AppUserModelID (pinning to the taskbar works) and an
+uninstaller. Updates come from the Installation page (the window holds a mutex the installer waits on). From a git
+checkout, double-click **`Autocut.bat`** instead: it installs uv and the Python packages, puts an
+**Autocut** shortcut (🪓) on the desktop and opens the window; run it again after `git pull`. The rest — ffmpeg, the transcription model (~3 GB),
 a browser for page captures, the Premiere panel — is checked and installed from the window's
 **Installation** page (bottom of the left column; it turns orange when something required is
 missing). The **IA** page (just above it) picks the AI engine every step uses — see [AI engines](#ai-engines).

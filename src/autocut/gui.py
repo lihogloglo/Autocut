@@ -838,8 +838,12 @@ class Api:
         if self._job.running:
             return {"ok": False, "message": tr("Une étape tourne déjà.")}
         what, _, arg = item.partition(":")
-        self._job.start("setup", ["autocut.setup", "install", what, *([arg] if arg else [])],
-                        lambda r: (self.check(), tr("Installé."))[1])
+        if what == "update":      # the new installer waits for this window to close, then opens it again
+            done = lambda r: (threading.Timer(1.0, self._window.destroy).start(),       # noqa: E731
+                              tr("Mise à jour : Autocut se rouvre dans un instant."))[1]
+        else:
+            done = lambda r: (self.check(), tr("Installé."))[1]                      # noqa: E731
+        self._job.start("setup", ["autocut.setup", "install", what, *([arg] if arg else [])], done)
         return {"ok": True}
 
     def open_url(self, url: str) -> None:
@@ -958,6 +962,9 @@ class Api:
         return _tc(seconds)
 
 
+_MUTEX = None
+
+
 def _on_loaded(window, api: Api) -> None:
     """Dropped files: WebView2 only gives full paths to a Python-side drop handler."""
     from webview.dom import DOMEventHandler
@@ -987,9 +994,11 @@ def main(tab: int = 0) -> None:
             dark = winreg.QueryValueEx(k, "AppsUseLightTheme")[0] == 0
     except OSError:
         pass
-    try:   # own taskbar button and icon instead of Python's
+    try:   # own taskbar button and icon instead of Python's (the installer's shortcuts carry the same id)
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("lihogloglo.autocut")
+        global _MUTEX           # the installer waits while this is held (Autocut-Setup.exe, installer/Autocut.iss)
+        _MUTEX = ctypes.windll.kernel32.CreateMutexW(None, False, "lihogloglo.autocut")
     except (AttributeError, OSError):
         pass
     window = webview.create_window("Autocut", str(WEB / "index.html"), js_api=api, width=1120, height=780,

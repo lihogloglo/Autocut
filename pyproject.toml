@@ -1,6 +1,6 @@
 [project]
 name = "autocut"
-version = "0.1.0"
+version = "0.2.0"
 description = "Derush long talking-head recordings against their script, for Premiere Pro"
 readme = "README.md"
 authors = [
@@ -11,7 +11,7 @@ dependencies = [
     "anthropic>=2.3.0",
     "beautifulsoup4>=4.15.0",
     "ddgs>=9.16.1",
-    "earshot @ git+https://github.com/Leonxlnx/earshot@v0.4.0",
+    "earshot @ https://github.com/Leonxlnx/earshot/archive/refs/tags/v0.4.0.zip",
     "fastembed>=0.9.1",
     "faster-whisper>=1.2.1",
     "httpx>=0.28.1",

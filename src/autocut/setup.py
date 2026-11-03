@@ -1,12 +1,17 @@
 """What Autocut needs on this computer, checked and installed from the window's Installation page.
 
-`python -m autocut.setup install <ffmpeg|model NAME|chromium|panel>` runs one install (the window
+`python -m autocut.setup install <ffmpeg|model NAME|chromium|panel|update>` runs one install (the window
 runs it as a job: progress, stop button).
+
+Updates: when Autocut was installed with Autocut-Setup.exe, the page compares its version with the latest
+release on GitHub; « Mettre à jour » downloads the new installer and runs it quietly (it waits for the
+window to close, updates, and opens it again). A git checkout updates with git pull and Autocut.bat.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -16,8 +21,82 @@ from .i18n import tr
 
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 MODELS = {"large-v3": "Précise (large-v3), ~3 Go", "large-v3-turbo": "Rapide (large-v3-turbo), ~1,6 Go"}
+REPO = "lihogloglo/Autocut"
 EDGE = [Path(os.environ.get(v, "")) / "Microsoft/Edge/Application/msedge.exe"
         for v in ("ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA")]
+
+
+def version() -> str:
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _v
+    try:
+        return _v("autocut")
+    except PackageNotFoundError:
+        return "0"
+
+
+def installed_dir() -> Path | None:
+    """The folder Autocut-Setup.exe installed into ({app}, holding .venv); None for a git checkout."""
+    root = Path(sys.prefix).parent
+    return root if (root / "unins000.exe").exists() else None
+
+
+def _newer(a: str, b: str) -> bool:
+    num = lambda v: tuple(int(x) for x in re.findall(r"\d+", v)[:3])      # noqa: E731
+    return num(a) > num(b)
+
+
+def latest_release() -> dict:
+    import httpx
+    r = httpx.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=6,
+                  headers={"Accept": "application/vnd.github+json"}, follow_redirects=True)
+    r.raise_for_status()
+    d = r.json()
+    asset = next((a for a in d.get("assets", []) if a.get("name") == "Autocut-Setup.exe"), None)
+    return {"version": d.get("tag_name", "").lstrip("v"), "url": asset["browser_download_url"] if asset else ""}
+
+
+def _update() -> dict:
+    cur = version()
+    row = {"id": "update", "name": tr("Autocut {version}", version=cur), "required": False, "ok": True, "action": None}
+    if not installed_dir():
+        return {**row, "detail": tr("Version de développement : mettez à jour avec git pull, puis Autocut.bat.")}
+    try:
+        latest = latest_release()
+    except Exception:
+        return {**row, "detail": tr("Impossible de vérifier les mises à jour (pas de connexion ?).")}
+    if latest["url"] and _newer(latest["version"], cur):
+        return {**row, "ok": False, "detail": tr("La version {version} est disponible.", version=latest["version"]),
+                "action": tr("Mettre à jour"), "note": tr("Autocut se ferme, se met à jour et se rouvre.")}
+    return {**row, "detail": tr("À jour.")}
+
+
+def _run_update() -> None:
+    """Download the latest installer, then start it detached: it waits for the window to close."""
+    import tempfile
+
+    import httpx
+    latest = latest_release()
+    if not latest["url"]:
+        raise SystemExit(tr("Pas d'installateur dans la dernière version."))
+    dest = Path(tempfile.gettempdir()) / f"Autocut-Setup-{latest['version']}.exe"
+    print(tr("[1/2] téléchargement de la version {version}", version=latest["version"]))
+    with httpx.stream("GET", latest["url"], follow_redirects=True, timeout=60) as r:
+        r.raise_for_status()
+        total = int(r.headers.get("Content-Length") or 0)
+        done = 0
+        tmp = dest.with_suffix(".part")
+        with tmp.open("wb") as fh:
+            for chunk in r.iter_bytes():
+                fh.write(chunk)
+                done += len(chunk)
+                if total:
+                    print(f"\r{done * 100 // total} %", end="")
+        tmp.replace(dest)
+    print()
+    print(tr("[2/2] installation"))
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen([str(dest), "/SILENT", "/relaunch=1"], creationflags=flags, close_fds=True)
 
 
 def _ffmpeg() -> dict:
@@ -102,8 +181,7 @@ def _panel() -> dict:
 
 def check_all() -> list[dict]:
     from concurrent.futures import ThreadPoolExecutor
-    jobs = [_ffmpeg, _gpu, lambda: _model("large-v3"), lambda: _model("large-v3-turbo"), _browser, _panel,
-]
+    jobs = [_update, _ffmpeg, _gpu, lambda: _model("large-v3"), lambda: _model("large-v3-turbo"), _browser, _panel]
     with ThreadPoolExecutor(len(jobs)) as ex:
         return list(ex.map(lambda f: f(), jobs))
 
@@ -127,6 +205,8 @@ def install(what: str, arg: str = "") -> None:
     elif what == "ai":
         from .sourcing.llm import install as install_ai
         install_ai(arg)
+    elif what == "update":
+        _run_update()
     elif what == "panel":
         from .sourcing.bridge import install_panel
         print(tr("[1/1] installation du panneau Premiere"))

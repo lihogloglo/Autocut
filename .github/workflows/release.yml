@@ -1,0 +1,67 @@
+# Autocut-Setup.exe. A tag « v0.2.0 » (same version as pyproject.toml) publishes it on the Releases page;
+# a run by hand (Actions > Installer > Run workflow) only builds it, as a downloadable artifact, to try it.
+name: Installer
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  UV_VERSION: "0.13.1"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -ne "v$v") {
+            throw "tag $env:GITHUB_REF_NAME does not match pyproject.toml version $v"
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: uv for the installer
+        shell: pwsh
+        run: |
+          $url = "https://github.com/astral-sh/uv/releases/download/$env:UV_VERSION/uv-x86_64-pc-windows-msvc.zip"
+          Invoke-WebRequest $url -OutFile uv.zip
+          Expand-Archive uv.zip -DestinationPath uvbin
+          Get-ChildItem uvbin -Recurse -Filter uv.exe | Select-Object -First 1 | Copy-Item -Destination uv.exe
+
+      - name: The lock installs without Git and without a system Python
+        shell: pwsh
+        run: |
+          .\uv.exe sync --frozen --python-preference only-managed --color never
+          .\uv.exe run --frozen python -c "import autocut.gui, autocut.sfx.board, earshot.forge.bank; print('ok')"
+
+      - name: Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Build Autocut-Setup.exe
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=${{ steps.version.outputs.version }}" "/DUvExe=$PWD\uv.exe" installer\Autocut.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Autocut-Setup-${{ steps.version.outputs.version }}
+          path: dist/Autocut-Setup.exe
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create $env:GITHUB_REF_NAME dist/Autocut-Setup.exe --title "Autocut ${{ steps.version.outputs.version }}" --generate-notes
