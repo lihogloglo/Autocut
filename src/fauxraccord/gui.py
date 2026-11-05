@@ -342,12 +342,16 @@ class Api:
         self._scan_key = None
         self._scan: dict = {}
         self._sheet = None
-        self._sheet_window = None
         self._manifest_cache: tuple = (None, 0)
         self._lock = threading.Lock()
         self._checks: list[dict] | None = None
         self._ai: list[dict] | None = None
         self._sb_server = None
+        # the planches: tabs of this window (Illustrations · Storyboard · Sons), each a page with its own small
+        # server; their calls to Python come through planche_call. tab -> {"url", "api", "out"}
+        self._planche: dict[str, dict] = {}
+        # Premiere's playhead, from the panel: the sentence under it (the planche follows it)
+        self._follow = {"seq": "", "spans": {}, "stale": True, "asked": 0.0, "t": None, "sentence": None}
 
     # plumbing
     def _emit(self, ev: dict) -> None:
@@ -426,12 +430,11 @@ class Api:
         s["recent"] = [key, *[r for r in s["recent"] if r != key]][:12]
         self._scan_key = None
         self._title()
-        if self._sheet_window:       # the contact sheet belongs to the project it was opened from
-            try:
-                self._sheet_window[0].destroy()
-            except Exception:
-                pass
-            self._sheet_window = None
+        # the illustrations' and the storyboard's planches belong to the project they were opened from
+        gone = [k for k in ("sources", "storyboard") if self._planche.pop(k, None)]
+        if gone:
+            self._emit({"type": "planche-drop", "tabs": gone})
+        self._follow.update(spans={}, stale=True, sentence=None)
 
     def _title(self) -> None:
         name = Path(self._state["project"]).name if self._state["project"] else ""
@@ -711,20 +714,12 @@ class Api:
                 "montage": self._montage()}
 
     def open_board(self, tab: str = "") -> dict:
-        """The sound board in its own FauxRaccord window: sound effects, ambiences and music to drag into
-        Premiere, and (tab « montage ») the sounds placed on the edit. Needs no analysis for the rest."""
-        import webview
-
+        """The sound board, the planche's « Sons » tab: sound effects, ambiences and music to drag into
+        Premiere, and (its tab « montage ») the sounds placed on the edit. Needs no analysis for the rest."""
         from .sfx.board import Board, BoardApi, serve
-        win = getattr(self, "_board_window", None)
-        if win is not None:
-            try:
-                win.restore()
-                win.show()
-                win.evaluate_js(f"openTab({json.dumps(tab)})" if tab else "load(true)")
-                return {"ok": True}
-            except Exception:
-                self._board_window = None
+        if "sons" in self._planche:
+            self._show_planche("sons", sub=tab or "reload")
+            return {"ok": True}
         opts = lambda: self._state["opts"]      # noqa: E731  (read at each use: settings change while it is open)
         board = Board(lambda: opts().get("sfx_folders") or [], self._board_media, lambda: opts().get("sfx_sources") or {},
                       self._board_context)
@@ -735,15 +730,100 @@ class Api:
             url += f"?tab={tab}"
         api = BoardApi(board, place=lambda: self.premiere("sons"), export=lambda: self.run("sfx_place"),
                        analyse=lambda: self.run("sfx"), beat=self.beat_from_board)
-        win = webview.create_window(tr("Planche sonore"), url, js_api=api, width=1320, height=900,
-                                    min_size=(640, 420))
-        board.window = win
-        self._board_window = win
-
-        def closed():
-            self._board_window = None
-        win.events.closed += closed
+        board.window = self._window          # the native drag starts from this window
+        self._planche["sons"] = {"url": url, "api": api, "out": ""}
+        self._show_planche("sons")
         return {"ok": True}
+
+    # --- the planche: one mode of this window, its tabs -------------------------------------------------
+    def _show_planche(self, tab: str, sub: str = "") -> None:
+        """The window switches to the planche, on that tab (sub: the sound board's own tab, or « reload »)."""
+        p = self._planche.get(tab)
+        self._emit({"type": "planche", "tab": tab, "url": p["url"] if p else "", "sub": sub})
+
+    def planche_state(self) -> dict:
+        """The planches already open (the page reloaded: same servers, same pages)."""
+        return {k: v["url"] for k, v in self._planche.items()}
+
+    def planche_open(self, tab: str) -> dict:
+        """A planche tab clicked: the planche already open, or opened now when there is something to show."""
+        if tab in self._planche:
+            self._show_planche(tab)
+            return {"ok": True}
+        fn = {"sources": self.open_sheet, "storyboard": self.open_storyboard, "sons": self.open_board}.get(tab)
+        return fn() if fn else {"ok": True}
+
+    def planche_call(self, tab: str, method: str, args: list | None = None):
+        """A planche page calls Python (what was window.pywebview.api when each planche had its own window)."""
+        p = self._planche.get(tab)
+        fn = getattr(p["api"], method, None) if p and not method.startswith("_") else None
+        if not callable(fn):
+            return {"ok": False, "state": "error", "error": tr("Rouvrez la planche.")}
+        return fn(*(args or []))
+
+    # --- Premiere's playhead (the panel tells it) ---------------------------------------------------------
+    def _on_playhead(self, t: float, seq: str) -> None:
+        f = self._follow
+        if seq != f["seq"]:
+            f.update(seq=seq, spans={}, stale=True, sentence=None)
+        f["t"] = t
+        self._follow_emit()
+
+    def _follow_emit(self) -> None:
+        from .sourcing.place import sentence_at
+        f = self._follow
+        idx = sentence_at(f["spans"], f["t"]) if f["t"] is not None else None
+        if idx != f["sentence"]:
+            f["sentence"] = idx
+            self._emit({"type": "playhead", "sentence": idx, "t": f["t"], "seq": f["seq"]})
+
+    def _panel_status(self) -> dict:
+        """What the Premiere panel shows: the project, and the sentence under the playhead."""
+        idx = self._follow["sentence"]
+        return {"project": Path(self._state["project"]).name if self._state["project"] else "",
+                "sentence": f"S{idx + 1:03d}" if idx is not None else ""}
+
+    def _want_sequence(self, seq: str) -> bool:
+        """The panel is asked to read the sequence when its sentences are not known yet (every 5 s at most)."""
+        f = self._follow
+        if not f["stale"] or time.time() - f["asked"] < 5:
+            return False
+        f["asked"] = time.time()
+        return True
+
+    def _on_sequence(self, data: dict) -> None:
+        """The sequence open in Premiere, read by the panel: where each sentence of the script is in it."""
+        from .sourcing.place import spans_from_panel
+        derush, _edit = self._place_inputs()
+        if not derush and self._state["derush_out"]:
+            derush = Path(self._state["derush_out"])
+        try:
+            spans = spans_from_panel(data, derush)
+        except Exception:
+            log_event("sentences of the open sequence", exc=True)
+            spans = {}
+        self._follow.update(seq=data.get("name") or self._follow["seq"], spans=spans, stale=False)
+        self._follow_emit()
+
+    def planche_seek(self, sentence: int) -> dict:
+        """A sentence clicked on a planche: Premiere's playhead goes there."""
+        from .sourcing import bridge
+        span = self._follow["spans"].get(int(sentence))
+        if not span:
+            return {"ok": False, "message": tr("Phrase introuvable dans la séquence ouverte dans Premiere.")}
+        if not bridge.panel_live():
+            return {"ok": False, "message": tr("Ouvrez le panneau FauxRaccord dans Premiere : Fenêtre › Extensions UXP › FauxRaccord.")}
+        bridge.seek(span[0])
+        return {"ok": True}
+
+    def premiere_remove(self, kind: str = "sources") -> dict:
+        """« Retirer » : what the panel placed (never the edit, nor what was dragged by hand) leaves the sequence."""
+        from .sourcing import bridge
+        if not bridge.panel_live():
+            return {"ok": False, "message": tr("Ouvrez le panneau FauxRaccord dans Premiere : Fenêtre › Extensions UXP › FauxRaccord.")}
+        rid = bridge.request("remove", {"kind": kind if kind in ("sources", "storyboard") else "sources"})
+        self._emit({"type": "premiere", "id": rid, "kind": kind})
+        return {"ok": True, "id": rid}
 
     def sfx_folder(self, folder: str = "", remove: bool = False) -> dict:
         """A folder of sounds (the user's downloads, packs): added once, used by every project."""
@@ -1433,13 +1513,11 @@ class Api:
         self._checks = self._ai = None          # their texts come from Python: checked again in the new language
         threading.Thread(target=self.check, daemon=True).start()
         threading.Thread(target=self.ai_check, daemon=True).start()
-        for win in (self._window, self._sheet_window[0] if self._sheet_window else None,
-                    getattr(self, "_sb_window", None), getattr(self, "_board_window", None)):
-            if win:
-                try:
-                    win.evaluate_js("location.reload()")
-                except Exception:
-                    pass
+        if self._window:              # the planches are in it: they reload with it
+            try:
+                self._window.evaluate_js("location.reload()")
+            except Exception:
+                pass
 
     def init(self) -> dict:
         self._title()
@@ -1915,45 +1993,33 @@ class Api:
 
     def _storyboard_done(self, result: str) -> str:
         self._push()
-        self.open_storyboard()
+        self.open_storyboard(reload=True)
         return tr("Plans prêts : la planche du storyboard s'ouvre.")
 
-    def open_storyboard(self) -> dict:
-        """The storyboard's planche in its own FauxRaccord window: cards can be dragged into Premiere."""
+    def open_storyboard(self, reload: bool = False) -> dict:
+        """The storyboard, the planche's « Storyboard » tab: cards can be dragged into Premiere. Already open
+        on these plans: only shown (reload: the plans were made again)."""
         out = self._sb_out()
         if not out or not (out / "storyboard.json").exists():
             return {"ok": False, "message": tr("Créez d'abord les plans.")}
-        import webview
-
+        cur = self._planche.get("storyboard")
+        if cur and cur["out"] == str(out) and not reload:
+            self._show_planche("storyboard")
+            return {"ok": True}
         from .storyboard import StoryboardApi, serve
         if self._sb_server:
             self._sb_server.shutdown()
         self._sb_server, url = serve(out, lambda: self._state["opts"].get("llm", "auto"), open_browser=False)
-        win = getattr(self, "_sb_window", None)
-        if win is not None:
-            try:
-                self._sb_api.out = out
-                win.load_url(url)
-                win.restore()
-                win.show()
-                return {"ok": True}
-            except Exception:
-                self._sb_window = None
         api = StoryboardApi(out, place=lambda: self.premiere("storyboard"), export=lambda: self.run("sb_place"))
-        win = webview.create_window(tr("Planche · Storyboard"), url, js_api=api, width=1400, height=950,
-                                    min_size=(640, 420), text_select=True)
-        api.window = win
-        self._sb_api, self._sb_window = api, win
-
-        def closed():
-            self._sb_window = None
-        win.events.closed += closed
+        api.window = self._window
+        self._planche["storyboard"] = {"url": url, "api": api, "out": str(out)}
+        self._show_planche("storyboard")
         return {"ok": True}
 
     def _collect_done(self, result: str) -> str:
         self._push()
-        self.open_sheet()
-        return tr("Collecte terminée : la planche s'ouvre dans sa fenêtre.")
+        self.open_sheet(reload=True)
+        return tr("Collecte terminée : la planche s'ouvre.")
 
     # files
     def open_path(self, path: str) -> None:
@@ -1964,44 +2030,27 @@ class Api:
         if path and Path(path).exists():
             subprocess.Popen(["explorer", "/select,", str(Path(path))])
 
-    def open_sheet(self) -> dict:
+    def open_sheet(self, reload: bool = False) -> dict:
+        """The illustrations, the planche's « Illustrations » tab: cards can be dragged into Premiere.
+        Already open on this collection: only shown (reload: collected again)."""
         out = self._sources_out()
         if not out or not (out / "manifest.json").exists():
             return {"ok": False, "message": tr("Collectez d'abord.")}
+        cur = self._planche.get("sources")
+        if cur and cur["out"] == str(out) and not reload:
+            self._show_planche("sources")
+            return {"ok": True}
+        from .sourcing.drag import Dragger, SheetApi
         from .sourcing.sheet import serve
         if self._sheet:
             self._sheet.shutdown()
         self._sheet, url = serve(out, open_browser=False)
-        self._sheet_window_open(out, url)
-        return {"ok": True}
-
-    def _sheet_window_open(self, out: Path, url: str) -> None:
-        """The planche in its own FauxRaccord window (not the browser): cards can be dragged into Premiere."""
-        import webview
-
-        from .sourcing.drag import Dragger, SheetApi
         dragger = Dragger(out)
-        place = lambda: self.premiere("sources")      # noqa: E731
-        if self._sheet_window is not None:
-            win, api = self._sheet_window
-            try:      # same window, new server / collection
-                dragger.window = win
-                api._d = dragger
-                win.load_url(url)
-                win.restore()
-                win.show()
-                return
-            except Exception:
-                self._sheet_window = None
-        api = SheetApi(dragger, place=place)
-        win = webview.create_window(tr("Planche"), url, js_api=api, width=1500, height=950, min_size=(600, 400),
-                                    text_select=True)
-        dragger.window = win
-        self._sheet_window = (win, api)
-
-        def closed():
-            self._sheet_window = None
-        win.events.closed += closed
+        dragger.window = self._window
+        self._planche["sources"] = {"url": url, "api": SheetApi(dragger, place=lambda: self.premiere("sources")),
+                                    "out": str(out)}
+        self._show_planche("sources")
+        return {"ok": True}
 
     def report(self) -> None:
         r = self._state["derush_out"]
@@ -2158,24 +2207,15 @@ def _front(win) -> None:
 
 
 def _focus(api: "Api", window, view: str) -> None:
-    """The Premiere panel's « Ouvrir » buttons, or FauxRaccord launched again: the window, on that page.
-    A board already open only comes forward (not reloaded)."""
+    """A fauxraccord://open/<view> link, or FauxRaccord launched again: the window, on that page or planche
+    tab. A planche already open only comes forward (not reloaded)."""
     log_event(f"focus {view}")
-    current = {"sources": lambda: (api._sheet_window or (None,))[0],
-               "storyboard": lambda: getattr(api, "_sb_window", None),
-               "sons": lambda: getattr(api, "_board_window", None)}.get(view)
-    if current:
-        win = current()
-        if win is None:
-            r = {"sources": api.open_sheet, "storyboard": api.open_storyboard, "sons": api.open_board}[view]() or {}
-            if not r.get("ok", True):
-                api._emit({"type": "toast", "text": r.get("message") or r.get("error") or ""})
-                return _front(window)
-            win = current()
-        if win is not None:
-            return _front(win)
+    if view in ("sources", "storyboard", "sons"):
+        r = api.planche_open(view) or {}
+        if not r.get("ok", True):
+            api._emit({"type": "toast", "text": r.get("message") or r.get("error") or ""})
     elif view == "moments":
-        api._emit({"type": "show", "step": "moments"})
+        api._emit({"type": "planche", "tab": "moments", "url": "", "sub": ""})
     _front(window)
 
 
@@ -2317,13 +2357,11 @@ def main(tab: int = 0) -> None:
     if view not in ("main", "start"):
         window.events.loaded += lambda: _focus_soon(api, window, view)
     window.events.closing += lambda: api._job.stop()
-    window.events.closed += lambda: api._sheet_window and api._sheet_window[0].destroy()
-    window.events.closed += lambda: getattr(api, "_sb_window", None) and api._sb_window.destroy()
-    window.events.closed += lambda: getattr(api, "_board_window", None) and api._board_window.destroy()
     bridge.start(lambda kind="sources": {"out": api._sb_out() if kind == "storyboard" else api._sources_out(),
                                          "derush": Path(api._state["derush_out"]) if api._state["derush_out"] else None,
                                          "auto": bool(api._state["opts"].get("auto_fill", True))},
-                 focus=lambda v: _focus_soon(api, window, v))
+                 focus=lambda v: _focus_soon(api, window, v), playhead=api._on_playhead,
+                 sequence=api._on_sequence, want=api._want_sequence, status=api._panel_status)
     threading.Thread(target=_register_link, daemon=True).start()
     fresh_page_cache(APPDATA / "webview")
     webview.start(private_mode=False, storage_path=str(APPDATA / "webview"), icon=str(WEB / "fauxraccord.ico"))

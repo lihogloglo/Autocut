@@ -700,3 +700,35 @@ body.dragging .veil { opacity: 1; }
 .mo-zchip { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 1px 2px 1px 7px; color: var(--text); }
 .mo-zchip.neg { border-style: dashed; }
 .mo-zchip .icon-btn { font-size: 11px; padding: 2px 4px; }
+
+/* --- the planche: the window's other mode ------------------------------------------------------- */
+.pl-nav { margin-bottom: 4px; }
+.app.planche-on { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+.app.planche-on .side, .app.planche-on main { display: none; }
+.app.planche-on.pl-moments main { display: block; grid-row: 2; min-height: 0; }
+.planche { display: flex; flex-direction: column; min-height: 0; grid-row: 1 / span 2; }
+.app.pl-moments .planche { grid-row: 1; }
+.app.pl-moments .pl-body { display: none; }
+.pl-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 8px 12px; background: var(--surface);
+           border-bottom: 1px solid var(--border); }
+.pl-menu { display: inline-flex; align-items: center; gap: 6px; }
+.pl-menu svg { width: 16px; height: 16px; }
+.pl-proj { font-size: 14px; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-tabs { display: flex; gap: 2px; }
+.pl-tab { font: inherit; background: none; border: 0; border-bottom: 2px solid transparent; padding: 7px 10px; color: var(--muted);
+          cursor: pointer; }
+.pl-tab:hover { color: var(--text); }
+.pl-tab.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.pl-sp { flex: 1; }
+.pl-job { font: inherit; font-size: 12px; border: 0; border-radius: 999px; padding: 3px 10px; background: var(--surface-2);
+          color: var(--muted); cursor: pointer; max-width: 320px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-job.run { background: var(--accent-soft); color: var(--accent); }
+.pl-job.ok { background: var(--ok-soft); color: var(--ok); }
+.pl-job.err { background: var(--danger-soft); color: var(--danger); }
+.chip { font: inherit; font-size: 13px; padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border-strong);
+        background: var(--surface); color: var(--muted); cursor: pointer; white-space: nowrap; }
+.chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.pl-body { flex: 1; position: relative; min-height: 0; background: var(--bg); }
+.pl-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--bg); }
+.pl-empty { padding: 48px 24px; text-align: center; color: var(--muted); }
+.pl-empty p { margin: 0 0 14px; }

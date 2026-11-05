@@ -6,6 +6,30 @@
 <meta name="referrer" content="no-referrer">
 <title>Planche B-roll</title>
 <script src="/i18n.js"></script>
+<script>
+// In the FauxRaccord window this planche is a tab (an iframe), with no window.pywebview of its own: its calls go
+// to the window, which passes them to Python. The window also says which sentence Premiere is playing.
+(function () {
+  if (window.parent === window || window.pywebview) return;
+  document.documentElement.classList.add("in-fr");
+  let n = 0;
+  const wait = {};
+  const call = (method, args) => new Promise((ok, ko) => {
+    const id = ++n;
+    wait[id] = { ok, ko };
+    window.parent.postMessage({ fr: "call", id, method, args }, "*");
+  });
+  window.pywebview = { api: new Proxy({}, { get: (_, m) => (typeof m === "string" && m !== "then" ? (...a) => call(m, a) : undefined) }) };
+  window.frSeek = (sentence) => window.parent.postMessage({ fr: "seek", sentence }, "*");
+  window.addEventListener("message", (e) => {
+    const d = e.data || {};
+    if (d.fr === "reply" && wait[d.id]) { const w = wait[d.id]; delete wait[d.id]; if (d.ok) w.ok(d.r); else w.ko(new Error(d.error)); }
+    else if (d.fr === "follow" && window.frFollow) window.frFollow(d.sentence);
+    else if (d.fr === "tab" && window.openTab) window.openTab(d.tab);
+    else if (d.fr === "reload" && typeof load === "function") load(true);
+  });
+})();
+</script>
 <style>
 :root {
   --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1d22; --muted: #5f6576; --line: #e1e4ea;
@@ -37,6 +61,9 @@ h2 { font-size: 20px; margin: 28px 0 8px; }
 @media (max-width: 800px) { .par { grid-template-columns: 1fr; } }
 .text p { margin: 0 0 6px; }
 .text .idx { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; margin-right: 4px; }
+.in-fr .text .idx { cursor: pointer; } .in-fr .text .idx:hover { color: var(--accent, #4a6cf7); text-decoration: underline; }
+.par.playing { box-shadow: inset 3px 0 0 var(--accent, #4a6cf7); }
+.text p.playing .idx { color: var(--accent, #4a6cf7); font-weight: 700; }
 .text .note { display: inline-block; background: var(--verif); color: #fff; border-radius: 4px; padding: 0 5px;
               font-size: 11px; margin-left: 4px; }
 .links { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
@@ -312,7 +339,7 @@ function render() {
         || x.sentence - y.sentence || y.score - x.score);
       shown += assets.length;
       const period = parPeriod[p] ? `<div class="period" title="${t("période dont parle le passage")}">${esc(t("période : {period}", {period: parPeriod[p]}))}</div>` : "";
-      const text = ps.map(s => `<p><span class="idx">S${String(s.idx + 1).padStart(3, "0")}</span>${esc(s.text)}${
+      const text = ps.map(s => `<p data-s="${s.idx}"><span class="idx" data-seek="${s.idx}">S${String(s.idx + 1).padStart(3, "0")}</span>${esc(s.text)}${
         s.notes.map(n => `<span class="note">${esc(n)}</span>`).join("")}</p>${s.links.length ? `<div class="links">${
         s.links.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener" title="${esc(l.url)}">${esc(l.anchor)} · ${
         esc(new URL(l.url).hostname.replace(/^www\./, ""))}</a>`).join("")}</div>` : ""}`).join("");
@@ -601,6 +628,26 @@ function dragReady() {
   markPlaced();
 }
 window.addEventListener("pywebviewready", dragReady);
+
+// Premiere's playhead: the paragraph of the sentence being played comes into view (the sentence itself, or the
+// last one shown before it). A sentence number clicked: Premiere's playhead goes there.
+window.frFollow = (idx) => {
+  let best = null;
+  for (const p of document.querySelectorAll(".text p[data-s]")) if (+p.dataset.s <= idx) best = p;
+  document.querySelectorAll(".playing").forEach((el) => el.classList.remove("playing"));
+  if (!best) return;
+  best.classList.add("playing");
+  const par = best.closest(".par");
+  if (!par) return;
+  par.classList.add("playing");
+  const head = document.querySelector("header");        // sticky: the paragraph goes just under it
+  const off = head ? head.getBoundingClientRect().height : 0;
+  window.scrollTo({ top: par.getBoundingClientRect().top + window.scrollY - off - 8, behavior: "smooth" });
+};
+document.addEventListener("click", (e) => {
+  const s = e.target.closest("[data-seek]");
+  if (s && window.frSeek) window.frSeek(+s.dataset.seek);
+});
 
 load().then(dragReady);
 </script>

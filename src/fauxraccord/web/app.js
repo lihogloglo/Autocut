@@ -93,6 +93,7 @@ const app = {
     this.bind();
     this.render(await this.api.init());
     this.show(this.view.state.step || "sync", false);
+    await this.plancheInit();
     setInterval(() => this.poll(), 3000);
   },
 
@@ -105,7 +106,10 @@ const app = {
     else if (ev.type === "ai") { if (this.view) { this.view.ai = ev.ai; this.renderAI(); this.renderNav(); } }
     else if (ev.type === "premiere") this.followPremiere(ev.id, ev.kind);
     else if (ev.type === "toast") { if (ev.text) this.toast(ev.text); }
-    else if (ev.type === "show") this.show(ev.step);           // the Premiere panel's « Ouvrir »
+    else if (ev.type === "show") { this.plancheMode(false); this.show(ev.step); }
+    else if (ev.type === "planche") this.plancheShow(ev.tab, ev.url, ev.sub);
+    else if (ev.type === "planche-drop") this.plancheDrop(ev.tabs || []);
+    else if (ev.type === "playhead") this.onPlayhead(ev);
     else if (ev.type === "panel-guide") { this.guide[ev.kind] = true; this.show(ev.kind); this.render(this.view); }
     else if (ev.type === "checks") { if (this.view) this.view.checks = ev.checks; this.renderChecks(); this.renderNav(); if (this.view) this.renderDerush(); }
   },
@@ -117,6 +121,7 @@ const app = {
 
   // --- navigation -----------------------------------------------------------------------------
   show(step, save = true) {
+    if (step === "planche") return this.plancheMode(true);
     this.step = step;
     $$(".step").forEach((b) => b.classList.toggle("active", b.dataset.step === step));
     $$(".page").forEach((p) => p.classList.toggle("active", p.id === `page-${step}`));
@@ -240,6 +245,11 @@ const app = {
       this.panelPage = this.step;
       const r = await this.api.install("panel", true);
       if (!r.ok) this.toast(r.message);
+    }
+    else if (what === "premiere-remove") {
+      const r = await this.api.premiere_remove(arg);
+      if (!r.ok) this.toast(r.message);
+      else if (r.id) this.followPremiere(r.id, arg);
     }
     else if (what === "premiere") {
       const r = await this.api.premiere(arg);
@@ -369,6 +379,7 @@ const app = {
     const bt = view_beat(this.view), bs = (window.beatPage && beatPage.v && beatPage.v.shots) ? beatPage.v : null;
     info.beat = bs && bs.music && bs.sources.some((x) => x.on) ? t("{n} plans", { n: bs.shots.length })
       : bt.music ? base(bt.music) : t("musique → coupes");
+    info.planche = t("à glisser dans Premiere");
     const mo = this.view.moments || {};
     info.moments = mo.found ? t("{n} moments", { n: mo.found }) : mo.rushes ? t("{n} rushs", { n: mo.rushes }) : t("rushs → moments");
     const done = { sync: !!s.sync_out, derush: !!s.derush_out, sources: !!(src.placed || s.broll_out), storyboard: !!sb.beats, sfx: !!fx.exists, ai: !!cur };
@@ -444,7 +455,8 @@ const app = {
     const help = place ? this.panelHelp(place) : "";
     return `<div class="body"><h3>${ICON.zap}${t("Automatique")}</h3><p class="note">${text}</p>${extra}
       <div class="go col">${placeBtn}
-        ${place ? `<button class="link" data-run="${exportRun}" ${exportOff || this.job.running ? "disabled" : ""}>${t("ou exporter le XML")}</button>` : `<span class="note">${t("Premiere › Fichier › Importer")}</span>`}
+        ${place ? `<button class="link" data-run="${exportRun}" ${exportOff || this.job.running ? "disabled" : ""}>${t("ou exporter le XML")}</button>
+          <button class="link" data-act="premiere-remove" data-arg="${place}" ${this.job.running ? "disabled" : ""}>${t("Retirer de Premiere")}</button>` : `<span class="note">${t("Premiere › Fichier › Importer")}</span>`}
         ${this.saveLine(EXPORT_OF_RUN[exportRun])}
         ${why ? `<span class="why">${esc(why)}</span>` : ""}${help}
         ${place ? `<span class="prem ${(this.prem[place] || {}).cls || ""}" id="prem-${place}">${esc((this.prem[place] || {}).txt || "")}</span>` : ""}</div></div>`;
@@ -804,7 +816,132 @@ const app = {
       if (window.momentsPage) momentsPage.onJobEnd(ev);
     }
     this.placeJob();
+    this.plancheJob(ev);
     if (this.view) this.render(this.view);
+  },
+
+  // --- the planche: this window's other mode (Illustrations · Storyboard · Sons · Moments) ----
+  // Each tab is a planche page with its own little server, in an iframe kept alive while you switch.
+  // Its calls to Python come here as messages (the iframe has no window.pywebview of its own).
+  pl: { on: false, tab: "sources", urls: {}, frames: {}, follow: true, sentence: null },
+
+  async plancheInit() {
+    try { this.pl.follow = localStorage.getItem("fauxraccord.follow") !== "0"; } catch (e) { /* no storage */ }
+    $("#pl-menu").addEventListener("click", () => this.plancheMode(false));
+    $$(".pl-tab").forEach((b) => b.addEventListener("click", () => this.plancheTab(b.dataset.tab)));
+    $("#pl-follow").addEventListener("click", () => {
+      this.pl.follow = !this.pl.follow;
+      try { localStorage.setItem("fauxraccord.follow", this.pl.follow ? "1" : "0"); } catch (e) { /* no storage */ }
+      this.plancheHead();
+      if (this.pl.follow) this.plancheFollow();
+    });
+    $("#pl-empty").addEventListener("click", (e) => {
+      const go = e.target.closest("[data-plgo]");
+      if (go) { this.plancheMode(false); this.show(go.dataset.plgo); }
+    });
+    $("#pl-job").addEventListener("click", () => { this.plancheMode(false); this.show(this.stepOf(this.job.step)); });
+    window.addEventListener("message", (e) => this.plancheMessage(e));
+    try {          // the page was reloaded: the planches already open come back as they were
+      for (const [tab, url] of Object.entries((await this.api.planche_state()) || {})) this.plancheFrame(tab, url);
+    } catch (e) { /* none */ }
+  },
+  plancheShow(tab, url, sub) {           // Python opened (or brought forward) a planche
+    if (url) this.plancheFrame(tab, url);
+    this.pl.tab = tab;
+    this.plancheMode(true);
+    if (sub) this.plancheSend(tab, sub === "reload" ? { fr: "reload" } : { fr: "tab", tab: sub });
+  },
+  plancheMode(on) {
+    if (on && !this.pl.on) this.pl.from = this.step;      // « Menu » comes back to that page
+    if (!on && this.pl.on && this.pl.from && this.step !== this.pl.from) this.show(this.pl.from, false);
+    this.pl.on = on;
+    $(".app").classList.toggle("planche-on", on);
+    $("#planche").hidden = !on;
+    if (on) this.plancheRender();
+    else $(".app").classList.remove("pl-moments");
+  },
+  async plancheTab(tab) {                // a tab clicked
+    this.pl.tab = tab;
+    this.plancheRender();
+    if (tab === "moments" || this.pl.urls[tab]) return;
+    const r = await this.api.planche_open(tab);     // opens it when there is something to show
+    if (r && !r.ok) this.plancheRender(r.message);
+  },
+  plancheFrame(tab, url) {
+    this.pl.urls[tab] = url;
+    let f = this.pl.frames[tab];
+    if (!f) {
+      f = document.createElement("iframe");
+      f.title = tab;
+      f.addEventListener("load", () => { if (this.pl.follow && this.pl.tab === tab) this.plancheFollow(); });
+      $("#pl-body").appendChild(f);
+      this.pl.frames[tab] = f;
+    }
+    if (f.dataset.src !== url) { f.dataset.src = url; f.src = url; }
+  },
+  plancheRender(msg) {
+    const tab = this.pl.tab;
+    $$(".pl-tab").forEach((b) => { const on = b.dataset.tab === tab; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); });
+    for (const [k, f] of Object.entries(this.pl.frames)) f.hidden = k !== tab;
+    $(".app").classList.toggle("pl-moments", tab === "moments");
+    if (tab === "moments" && this.step !== "moments") this.show("moments", false);
+    const empty = tab !== "moments" && !this.pl.urls[tab];
+    $("#pl-empty").hidden = !empty;
+    if (empty) {
+      const [why, step] = { sources: ["Pas encore d'images : collectez-les dans Illustrations.", "sources"],
+                            storyboard: ["Pas encore de plans : créez-les dans Storyboard.", "storyboard"],
+                            sons: ["La planche sonore s'ouvre…", "sfx"] }[tab];
+      $("#pl-empty").innerHTML = `<p>${esc(msg || t(why))}</p><button class="btn" data-plgo="${step}">${t("Aller à l'étape")}</button>`;
+    }
+    this.plancheHead();
+    if (this.pl.follow) this.plancheFollow();
+  },
+  plancheHead() {
+    $("#pl-proj").textContent = (this.view && this.view.project && this.view.project.name) || "";
+    const f = $("#pl-follow"), s = this.pl.sentence;
+    f.hidden = !["sources", "storyboard"].includes(this.pl.tab);    // the planches that are by sentence
+    f.classList.toggle("on", this.pl.follow);
+    f.setAttribute("aria-pressed", String(this.pl.follow));
+    f.textContent = !this.pl.follow ? t("Ne suit pas Premiere")
+      : s != null ? t("Suit Premiere · S{n}", { n: String(s + 1).padStart(3, "0") }) : t("Suit Premiere");
+  },
+  plancheJob(ev) {
+    const pill = $("#pl-job");
+    if (ev.running) { pill.hidden = false; pill.className = "pl-job run"; pill.textContent = (JOB_TITLE[ev.step] ? t(JOB_TITLE[ev.step]) : ev.step) + "…"; }
+    else { pill.className = `pl-job ${ev.ok ? "ok" : "err"}`; pill.textContent = (ev.ok ? "✓ " : "") + (ev.message || "").slice(0, 80); }
+  },
+  plancheDrop(tabs) {                    // another project: its planches go
+    for (const k of tabs) {
+      delete this.pl.urls[k];
+      if (this.pl.frames[k]) { this.pl.frames[k].remove(); delete this.pl.frames[k]; }
+    }
+    if (this.pl.on) this.plancheRender();
+  },
+  plancheSend(tab, msg) {
+    const f = this.pl.frames[tab];
+    if (f && f.contentWindow) f.contentWindow.postMessage(msg, "*");
+  },
+  onPlayhead(ev) {                       // the panel says Premiere's playhead is on another sentence
+    this.pl.sentence = ev.sentence;
+    this.plancheHead();
+    if (this.pl.follow) this.plancheFollow();
+  },
+  plancheFollow() {
+    if (this.pl.on && this.pl.sentence != null) this.plancheSend(this.pl.tab, { fr: "follow", sentence: this.pl.sentence });
+  },
+  async plancheMessage(e) {
+    const d = e.data || {};
+    const tab = Object.keys(this.pl.frames).find((k) => this.pl.frames[k].contentWindow === e.source);
+    if (!tab || !d.fr) return;
+    if (d.fr === "call") {
+      let reply;
+      try { reply = { fr: "reply", id: d.id, ok: true, r: await this.api.planche_call(tab, d.method, d.args || []) }; }
+      catch (err) { reply = { fr: "reply", id: d.id, ok: false, error: String((err && err.message) || err) }; }
+      e.source.postMessage(reply, "*");
+    } else if (d.fr === "seek") {        // a sentence clicked: Premiere's playhead goes there
+      const r = await this.api.planche_seek(d.sentence);
+      if (!r.ok) this.toast(r.message);
+    }
   },
   onLog(ev) {
     const log = $("#log");

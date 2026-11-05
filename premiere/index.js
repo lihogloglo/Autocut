@@ -1,30 +1,30 @@
-// FauxRaccord panel for Premiere Pro (UXP, 25.6+). Native Premiere widgets only: a web page inside a docked
-// panel is not drawn by Premiere (measured with 26.5), and the big boards live in the FauxRaccord window.
+// FauxRaccord panel for Premiere Pro (UXP, 25.6+): the connector between Premiere and the FauxRaccord window.
+// Everything is done from the window; this panel only shows a status light, and does in Premiere what the
+// window cannot reach:
 //
+// - Tells FauxRaccord where the playhead is (and reads the open sequence when FauxRaccord asks, or when it
+//   changed), so the planche follows the sentence being played. Moves the playhead when a sentence is
+//   clicked on the planche.
+// - Places what the window asks for: every illustration or storyboard card at its sentence (FauxRaccord,
+//   local server on port 47820, computes where), one file at the playhead (« → Premiere »), or removes what
+//   it placed before. The edit itself, and what was placed by hand, are never touched.
 // - Starts FauxRaccord when it is not running (the fauxraccord:// link, registered by FauxRaccord), and says
 //   when the panel and FauxRaccord are not the same version.
-// - « Placer » reads the open sequence, asks FauxRaccord (local server, port 47820) where each illustration
-//   or storyboard card goes, imports the files into bins and puts them on the tracks above the edit. Placing
-//   again first removes what the panel placed before, so it can be re-run after every re-edit. The edit
-//   itself, and what you placed by hand, are never touched.
-// - « Ouvrir » brings the FauxRaccord window (or one of its boards) to the front.
-// - The boards' « → Premiere » (and the sound board's I key): one file at the playhead, on the first track
-//   that is free for its length (V2 and up, A2 and up; a new track when none is).
+// Native Premiere widgets only: a web page inside a docked panel is not drawn by Premiere (measured with 26.5).
 // Texts: French in the code; the translations come from FauxRaccord (GET /i18n, the window's catalogue).
 
 const ppro = require("premierepro");
 const uxp = require("uxp");
 
-const VERSION = "0.4.1";             // = manifest.json (tests/test_premiere_panel.py checks it)
+const VERSION = "0.5.0";             // = manifest.json (tests/test_premiere_panel.py checks it)
 const BRIDGE = "http://127.0.0.1:47820";
 const TICKS_PER_SECOND = 254016000000;
 const STILL = 5;                     // seconds a picture is reckoned to last when looking for a free track
+const TICK = 400;                    // ms between two asks while FauxRaccord is open (the playhead goes with them)
+const RECOUNT = 5000;                // ms between two looks at whether the open sequence was edited
 
 const $ = (id) => document.getElementById(id);
-let forcedKind = "";         // set while placing what the FauxRaccord window asked for
-const kind = () => { if (forcedKind) return forcedKind; const p = $("kind"); if (!p) return "sources"; if (p.value === "storyboard" || p.value === "sources") return p.value; return p.selectedIndex === 1 ? "storyboard" : "sources"; };
 const NAMES = { sources: "illustrations", storyboard: "cartes du storyboard" };
-const what = () => t(NAMES[kind()]);
 const norm = (p) => (p || "").replace(/\\/g, "/").toLowerCase();
 
 // --- interface language ------------------------------------------------------------------------
@@ -36,18 +36,6 @@ function t(s, vars) {
   return vars ? r.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : r;
 }
 
-const placeLabel = () => t(kind() === "storyboard" ? "Placer le storyboard" : "Placer les illustrations");
-
-/** Static labels, from their French text (kept in data-fr so the language can change again). */
-function applyStatic() {
-  $("place").textContent = placeLabel();
-  $("kind").setAttribute("label", t("Quoi"));
-  for (const el of document.querySelectorAll("sp-menu-item, sp-action-button, #remove, #start, .sec")) {
-    if (!el.getAttribute("data-fr")) el.setAttribute("data-fr", el.textContent.trim());
-    el.textContent = t(el.getAttribute("data-fr"));
-  }
-}
-
 /** Asks FauxRaccord for the catalogue of its interface language; silent when FauxRaccord is not running. */
 async function loadI18n() {
   try {
@@ -56,27 +44,19 @@ async function loadI18n() {
       I18N.lang = d.lang || "fr";
       I18N.dict = d.dict || {};
       I18N.loaded = true;
-      applyStatic();
+      $("start").textContent = t("Démarrer");
     }
   } catch (e) { /* FauxRaccord closed: French until the next successful call */ }
 }
 
-function log(msg, cls) {
-  const d = document.createElement("div");
-  d.textContent = msg;
-  if (cls) d.className = cls;
-  $("log").appendChild(d);
-  $("log").scrollTop = 1e9;
-}
-
 function setStatus(msg, cls) {
-  $("status").textContent = msg;
+  $("status").textContent = msg || "";
   $("status").className = cls || "";
 }
 
 // --- the link with FauxRaccord -----------------------------------------------------------------
 
-const CONN = { ok: false, launched: 0, lastOk: 0, hello: null, warned: "" };
+const CONN = { ok: false, launched: 0, lastOk: 0, hello: null, note: "" };
 const RELAUNCH = 30000;     // never two launches closer than this: FauxRaccord may just be busy
 
 /** a.b.c compared as numbers: < 0, 0, > 0 */
@@ -89,27 +69,25 @@ function cmp(a, b) {
   return 0;
 }
 
-function connState(cls, text) {
+function light(cls, name, text) {
   $("dot").className = cls;
-  $("conn").textContent = text;
+  $("name").textContent = name || "FauxRaccord";
+  $("conn").textContent = text || "";
+  $("start").style.display = cls === "bad" ? "" : "none";
 }
 
-/** Starts FauxRaccord (in the background) or brings it forward on a page, through its fauxraccord:// link. */
-function launch(view) {
+/** Starts FauxRaccord (in the background), through its fauxraccord:// link. */
+function launch() {
   // Answered a moment ago: it is busy, not closed. And one launch is enough while it starts.
-  if (Date.now() - CONN.lastOk < RELAUNCH || Date.now() - CONN.launched < RELAUNCH) {
-    setStatus(t("FauxRaccord est occupé : un instant…"));
-    return;
-  }
+  if (Date.now() - CONN.lastOk < RELAUNCH || Date.now() - CONN.launched < RELAUNCH) return;
   CONN.launched = Date.now();
-  const url = view ? "fauxraccord://open/" + view : "fauxraccord://start";
   try {
-    const r = uxp.shell.openExternal(url, t("Démarrer FauxRaccord"));
-    if (r && r.catch) r.catch((e) => log(t("FauxRaccord ne démarre pas : {error}", { error: e.message || e }), "err"));
+    const r = uxp.shell.openExternal("fauxraccord://start", t("Démarrer FauxRaccord"));
+    if (r && r.catch) r.catch((e) => setStatus(t("FauxRaccord ne démarre pas : {error}", { error: e.message || e }), "err"));
   } catch (e) {
-    log(t("FauxRaccord ne démarre pas : {error}", { error: e.message || e }), "err");
+    setStatus(t("FauxRaccord ne démarre pas : {error}", { error: e.message || e }), "err");
   }
-  connState("wait", t("démarrage…"));
+  light("wait", "FauxRaccord", t("démarrage…"));
 }
 
 async function hello() {
@@ -125,7 +103,7 @@ async function hello() {
 function versionNote(h) {
   if (!h.panel || h.panel === VERSION) return "";
   return cmp(h.panel, VERSION) > 0
-    ? t("FauxRaccord a installé le panneau {v} : redémarrez Premiere pour l'utiliser.", { v: h.panel })
+    ? t("Nouvelle version installée, active au prochain démarrage de Premiere.")
     : t("Ce panneau ({v}) est plus récent que FauxRaccord : mettez FauxRaccord à jour.", { v: VERSION });
 }
 
@@ -134,27 +112,23 @@ async function connect() {
   const was = CONN.ok;
   CONN.ok = !!h;
   CONN.hello = h;
-  $("start").style.display = "none";
   if (h) {
     CONN.lastOk = Date.now();
-    if (!was) { await loadI18n(); refresh(); }
-    const note = versionNote(h);
-    connState(note ? "wait" : "ok", "v" + VERSION + (h.version ? " · FauxRaccord " + h.version : ""));
-    if (note && CONN.warned !== note) { CONN.warned = note; setStatus(note, "err"); }
+    if (!was) await loadI18n();
+    CONN.note = versionNote(h);
+    if (CONN.note) setStatus(CONN.note, "note");
     return true;
   }
   if (!CONN.launched) { launch(); return false; }
-  if (Date.now() - CONN.launched < 45000) { connState("wait", t("démarrage…")); return false; }
-  connState("bad", t("FauxRaccord n'est pas ouvert"));
-  $("start").style.display = "";
-  $("project").textContent = "";
+  if (Date.now() - CONN.launched < 45000) { light("wait", "FauxRaccord", t("démarrage…")); return false; }
+  light("bad", "FauxRaccord", t("fermé"));
   return false;
 }
 
-async function bridge(path, body) {
+async function bridge(path, kind, body) {
   let r;
   try {
-    r = await fetch(BRIDGE + path + "?kind=" + kind(), body ? { method: "POST", body: JSON.stringify(body),
+    r = await fetch(BRIDGE + path + "?kind=" + kind, body ? { method: "POST", body: JSON.stringify(body),
                                              headers: { "Content-Type": "application/json" } } : {});
   } catch (e) {
     CONN.ok = false;
@@ -165,6 +139,9 @@ async function bridge(path, body) {
   if (!data.ok) throw new Error(data.error || t("erreur de FauxRaccord"));
   return data;
 }
+
+const post = (path, body) => fetch(BRIDGE + path, { method: "POST", body: JSON.stringify(body),
+                                                    headers: { "Content-Type": "application/json" } }).catch(() => {});
 
 // --- reading Premiere ---------------------------------------------------------------------------
 
@@ -198,13 +175,13 @@ async function readSequence(seq, exportDir, oursList) {
   const isOurs = (path) => mine ? mine.has(norm(path)) : norm(path).startsWith(ourDir);
   for (const kind of ["video", "audio"]) {
     const list = await tracks(seq, kind);
-    for (let t = 0; t < list.length; t++) {
-      const tis = await list[t].getTrackItems(ppro.Constants.TrackItemType.CLIP, false);
+    for (let i = 0; i < list.length; i++) {
+      const tis = await list[i].getTrackItems(ppro.Constants.TrackItemType.CLIP, false);
       for (const ti of tis) {
         const path = await mediaPath(await ti.getProjectItem());
         const start = (await ti.getStartTime()).seconds, end = (await ti.getEndTime()).seconds;
-        if (path && isOurs(path)) { ours.push({ ti, kind, track: t, path, start, end }); continue; }
-        top[kind] = Math.max(top[kind], t);
+        if (path && isOurs(path)) { ours.push({ ti, kind, track: i, path, start, end }); continue; }
+        top[kind] = Math.max(top[kind], i);
         if (path) items.push({ start, end, in: (await ti.getInPoint()).seconds, path });
       }
     }
@@ -214,8 +191,17 @@ async function readSequence(seq, exportDir, oursList) {
     for (const m of (await ppro.Markers.getMarkers(seq)).getMarkers()) {
       markers.push({ name: m.getName(), start: m.getStart().seconds, duration: m.getDuration().seconds });
     }
-  } catch (e) { log(t("marqueurs illisibles : {error}", { error: e })); }
+  } catch (e) { /* no markers: FauxRaccord finds the sentences through the derush */ }
   return { info: { name: seq.name, fps, width, height, items, markers }, ours, top };
+}
+
+/** How many clips the sequence holds: a cheap sign that it was edited. */
+async function clipCount(seq) {
+  let n = 0;
+  for (const kind of ["video", "audio"]) {
+    for (const tr of await tracks(seq, kind)) n += (await tr.getTrackItems(ppro.Constants.TrackItemType.CLIP, false)).length;
+  }
+  return n;
 }
 
 // --- project bins -----------------------------------------------------------------------------
@@ -261,7 +247,7 @@ async function importAll(project, plan) {
   }
   for (const [section, paths] of bySection) {
     const bin = await childBin(project, main, section);
-    log(t("import : {n} fichier(s) dans « {bin} »", { n: paths.size, bin: section }));
+    setStatus(t("import : {n} fichier(s) dans « {bin} »", { n: paths.size, bin: section }));
     await project.importFiles([...paths], true, bin, false);
   }
   if (bySection.size) have = await clipsIn(main);
@@ -298,26 +284,21 @@ async function openSequence() {
   return { project, seq };
 }
 
-async function place() {
-  $("log").textContent = "";
-  const st = await bridge("/status");
+/** Every illustration (or storyboard card) at its sentence; what the panel placed before is replaced. */
+async function place(kind) {
+  const what = t(NAMES[kind] || NAMES.sources);
+  const st = await bridge("/status", kind);
   const { project, seq } = await openSequence();
 
   setStatus(t("Lecture de « {name} »…", { name: seq.name }));
   const { info, ours, top } = await readSequence(seq, st.export_dir, st.ours);
-  log(t("{n} plans lus, {m} marqueurs, {k} {what} déjà placées",
-        { n: info.items.length, m: info.markers.length, k: ours.length, what: what() }));
 
   setStatus(t("Calcul des emplacements…"));
-  const plan = await bridge("/plan", info);
-  plan.log.forEach((l) => log(l.trim()));
+  const plan = await bridge("/plan", kind, info);
   if (!plan.items.length) throw new Error(t("rien à placer"));
-  if (!plan.timed) log(t("pas de phrases repérées : illustrations à la suite"), "err");
 
   setStatus(t("Import des fichiers…"));
   const items = await importAll(project, plan);
-  const missing = plan.items.filter((it) => !items.has(norm(it.path)));
-  missing.forEach((it) => log(t("non importé : {path}", { path: it.path }), "err"));
 
   setStatus(t("Placement…"));
   removeOurs(project, seq, ours);
@@ -347,11 +328,11 @@ async function place() {
   setStatus(t("Durées…"));
   const want = new Map(todo.map((it) => [norm(it.path) + "@" + snap(it.start, fps).toFixed(2), it]));
   const trims = [];
-  for (const kind of ["video", "audio"]) {
-    const list = await tracks(seq, kind);
-    const from = kind === "video" ? baseV : baseA;
-    for (let t = from; t < list.length; t++) {
-      for (const ti of await list[t].getTrackItems(ppro.Constants.TrackItemType.CLIP, false)) {
+  for (const k of ["video", "audio"]) {
+    const list = await tracks(seq, k);
+    const from = k === "video" ? baseV : baseA;
+    for (let i = from; i < list.length; i++) {
+      for (const ti of await list[i].getTrackItems(ppro.Constants.TrackItemType.CLIP, false)) {
         const path = await mediaPath(await ti.getProjectItem());
         const start = (await ti.getStartTime()).seconds;
         const it = want.get(norm(path) + "@" + snap(start, fps).toFixed(2));
@@ -368,21 +349,22 @@ async function place() {
   }
   const lanes = Math.max(...todo.map((it) => it.lane)) + 1;
   const where = `V${baseV + 1}${lanes > 1 ? "–V" + (baseV + lanes) : ""}`;
-  const done = t("{n} {what} sur {tracks}", { n: todo.length, what: what(), tracks: where });
-  setStatus("✓ " + done, "ok");
-  return done;
+  const missing = plan.items.length - todo.length;
+  return t("{n} {what} sur {tracks}", { n: todo.length, what, tracks: where })
+    + (missing ? " · " + t("{n} non importé(s)", { n: missing }) : "")
+    + (plan.timed ? "" : " · " + t("pas de phrases repérées : illustrations à la suite"));
 }
 
-async function remove() {
-  $("log").textContent = "";
-  const st = await bridge("/status");
+async function remove(kind) {
+  const what = t(NAMES[kind] || NAMES.sources);
+  const st = await bridge("/status", kind);
   const { project, seq } = await openSequence();
   const { ours } = await readSequence(seq, st.export_dir, st.ours);
   removeOurs(project, seq, ours);
-  setStatus("✓ " + t("{n} {what} retirée(s)", { n: ours.length, what: what() }), "ok");
+  return t("{n} {what} retirée(s)", { n: ours.length, what });
 }
 
-// --- one file at the playhead (the boards' « → Premiere ») --------------------------------------
+// --- one file at the playhead (the planche's « → Premiere ») ------------------------------------
 
 /** The first track from `from` with nothing between start and end; the track count when none is free. */
 async function freeTrack(seq, kind, from, start, end) {
@@ -422,102 +404,106 @@ async function insertAtPlayhead(data) {
   transaction(project, t("FauxRaccord : insérer {name}", { name: data.name }), (ca) => ca.addAction(newTrack
     ? editor.createInsertProjectItemAction(pi, at(start, fps), v, a, true)        // a new track: nothing shifts
     : editor.createOverwriteItemAction(pi, at(start, fps), v, a)));
-  const where = data.audio ? "A" + (a + 1) : "V" + (v + 1);
-  const done = t("{name} sur {track}", { name: data.name, track: where });
-  setStatus("✓ " + done, "ok");
-  return done;
+  return t("{name} sur {track}", { name: data.name, track: data.audio ? "A" + (a + 1) : "V" + (v + 1) });
 }
 
-// --- buttons -----------------------------------------------------------------------------------
+// --- the playhead, and the sequence it plays ---------------------------------------------------
 
-function busy(on) {
-  $("place").disabled = $("remove").disabled = on;
-}
+const PLAY = { seq: null, name: "", t: null, count: -1, counted: 0, sending: false };
 
-function button(id, job) {
-  $(id).addEventListener("click", async () => {
-    busy(true);
-    try {
-      await job();
-    } catch (e) {
-      setStatus(String(e.message || e), "err");
-      log(String(e.stack || e), "err");
-    } finally {
-      busy(false);
-    }
-  });
-}
-
-async function refresh() {
-  if (!CONN.ok) return;
+/** Where the playhead is in the open sequence (null when no sequence is open). */
+async function playhead() {
   try {
-    const st = await bridge("/status");
-    $("project").textContent = t("{title} — {n} fichier(s) exporté(s)", { title: st.title, n: st.files })
-      + (st.derush ? "" : " · " + t("pas de derush indiqué"));
+    const project = await ppro.Project.getActiveProject();
+    const seq = project && await project.getActiveSequence();
+    if (!seq) { PLAY.seq = null; return null; }
+    if (!PLAY.seq || PLAY.name !== seq.name) { PLAY.count = -1; PLAY.counted = 0; }
+    PLAY.seq = seq;
+    PLAY.name = seq.name;
+    PLAY.t = (await seq.getPlayerPosition()).seconds;
+    return PLAY.t;
   } catch (e) {
-    $("project").textContent = String(e.message || e);
+    return null;
   }
 }
 
-button("place", place);
-button("remove", remove);
-$("start").addEventListener("click", () => launch());
-for (const b of document.querySelectorAll("[data-open]")) {
-  b.addEventListener("click", async () => {
-    const view = b.getAttribute("data-open");
-    if (!CONN.ok) return launch(view);
-    try {        // FauxRaccord does one « Ouvrir » at a time and merges a burst of clicks
-      await fetch(BRIDGE + "/focus", { method: "POST", body: JSON.stringify({ view }),
-                                       headers: { "Content-Type": "application/json" } });
-      CONN.lastOk = Date.now();
-    } catch (e) {
-      launch(view);          // only when it has not answered for a while (see launch)
-    }
-  });
+/** The open sequence to FauxRaccord (where the sentences are): when it asks, and when the edit changed. */
+async function sendSequence(force) {
+  const seq = PLAY.seq;
+  if (!seq || PLAY.sending) return;
+  if (!force && Date.now() - PLAY.counted < RECOUNT) return;
+  PLAY.sending = true;
+  try {
+    PLAY.counted = Date.now();
+    const n = await clipCount(seq);
+    if (!force && n === PLAY.count) return;
+    PLAY.count = n;
+    const { info } = await readSequence(seq, "", []);
+    await post("/sequence", info);
+  } catch (e) {
+    /* next time */
+  } finally {
+    PLAY.sending = false;
+  }
 }
-$("kind").addEventListener("change", () => {
-  $("place").textContent = placeLabel();
-  refresh();
-});
-document.addEventListener("uxpcommand", () => { connect(); refresh(); });
 
-// What the FauxRaccord window asks for: it leaves a request on the bridge; the panel takes it.
+async function seek(seconds) {
+  try {
+    const { seq } = await openSequence();
+    await seq.setPlayerPosition(ppro.TickTime.createWithSeconds(seconds));
+  } catch (e) {
+    setStatus(t("La tête de lecture ne bouge pas : {error}", { error: e.message || e }), "err");
+  }
+}
+
+// --- the loop: ask FauxRaccord what it wants, tell it where the playhead is ----------------------
+
 let working = false;
-async function pending() {
+async function tick() {
   if (!CONN.ok) return connect();
   if (working) return;
-  let req = null;
+  const pos = await playhead();
+  let d;
   try {
-    req = (await (await fetch(BRIDGE + "/pending?v=" + VERSION)).json()).request;
+    const q = "?v=" + VERSION + (pos != null ? "&t=" + pos.toFixed(3) + "&seq=" + encodeURIComponent(PLAY.name) : "");
+    d = await (await fetch(BRIDGE + "/pending" + q)).json();
     CONN.lastOk = Date.now();
   } catch (e) {
     CONN.ok = false;
     return connect();
   }
+  const st = d.status || {};
+  light(CONN.note ? "wait" : "ok", st.project || "FauxRaccord",
+        st.sentence ? t("suit {s}", { s: st.sentence }) : PLAY.seq ? PLAY.name : t("connecté"));
+  if (d.seek != null) await seek(d.seek);
+  sendSequence(d.want === "sequence");        // not awaited: the playhead keeps going while it reads
+  const req = d.request;
   if (!req) return;
   working = true;
-  busy(true);
-  const post = (path, body) => fetch(BRIDGE + path, { method: "POST", body: JSON.stringify(body),
-                                                      headers: { "Content-Type": "application/json" } }).catch(() => {});
   await post("/claim", { id: req.id });
   try {
-    let msg;
-    if (req.kind === "insert") msg = await insertAtPlayhead(req.data || {});
-    else { forcedKind = req.kind; msg = await place(); }
+    setStatus(t("FauxRaccord place…"));
+    const kind = (req.data && req.data.kind) || req.kind;
+    const msg = req.kind === "insert" ? await insertAtPlayhead(req.data || {})
+      : req.kind === "remove" ? await remove(kind)
+      : await place(req.kind);
+    setStatus("✓ " + msg);
     await post("/result", { id: req.id, ok: true, message: msg });
+    PLAY.counted = 0;                         // the sequence changed: read it again soon
   } catch (e) {
     setStatus(String(e.message || e), "err");
     await post("/result", { id: req.id, ok: false, message: String(e.message || e) });
   } finally {
-    forcedKind = "";
     working = false;
-    busy(false);
   }
 }
 
 async function loop() {
-  try { await pending(); } catch (e) { /* next round */ }
-  setTimeout(loop, CONN.ok ? 2500 : 1500);
+  try { await tick(); } catch (e) { /* next round */ }
+  setTimeout(loop, CONN.ok ? TICK : 1500);
 }
 
+$("start").addEventListener("click", () => { CONN.launched = 0; CONN.lastOk = 0; launch(); });
+document.addEventListener("uxpcommand", () => connect());
+light("wait", "FauxRaccord", "…");
 connect().then(loop);

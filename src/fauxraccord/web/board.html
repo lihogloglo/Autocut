@@ -123,6 +123,30 @@ footer .grow { flex:1; }
 .toast { position:fixed; right:18px; bottom:48px; background:var(--text); color:var(--bg); padding:9px 14px; border-radius:8px; font-size:13px; z-index:9; max-width:440px; }
 </style>
 <script src="i18n.js"></script>
+<script>
+// In the FauxRaccord window this planche is a tab (an iframe), with no window.pywebview of its own: its calls go
+// to the window, which passes them to Python. The window also says which sentence Premiere is playing.
+(function () {
+  if (window.parent === window || window.pywebview) return;
+  document.documentElement.classList.add("in-fr");
+  let n = 0;
+  const wait = {};
+  const call = (method, args) => new Promise((ok, ko) => {
+    const id = ++n;
+    wait[id] = { ok, ko };
+    window.parent.postMessage({ fr: "call", id, method, args }, "*");
+  });
+  window.pywebview = { api: new Proxy({}, { get: (_, m) => (typeof m === "string" && m !== "then" ? (...a) => call(m, a) : undefined) }) };
+  window.frSeek = (sentence) => window.parent.postMessage({ fr: "seek", sentence }, "*");
+  window.addEventListener("message", (e) => {
+    const d = e.data || {};
+    if (d.fr === "reply" && wait[d.id]) { const w = wait[d.id]; delete wait[d.id]; if (d.ok) w.ok(d.r); else w.ko(new Error(d.error)); }
+    else if (d.fr === "follow" && window.frFollow) window.frFollow(d.sentence);
+    else if (d.fr === "tab" && window.openTab) window.openTab(d.tab);
+    else if (d.fr === "reload" && typeof load === "function") load(true);
+  });
+})();
+</script>
 </head>
 <body>
 <header class="bar">

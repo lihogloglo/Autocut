@@ -64,6 +64,8 @@ body:not(.can-drag) .grip, body:not(.can-drag) .drag-only { display: none; }
 .beat .quote { color: var(--muted); font-style: italic; font-size: 13px; margin-top: 8px; }
 .head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
 .head .id { font-weight: 700; }
+.in-fr .head .id { cursor: pointer; } .in-fr .head .id:hover { color: var(--accent); text-decoration: underline; }
+.beat.playing { box-shadow: 0 0 0 2px var(--accent); }
 .head .tc { color: var(--muted); font-size: 12.5px; }
 .head select { width: auto; }
 .head .sp { flex: 1; }
@@ -97,6 +99,30 @@ pre.scene { background: var(--surface-2); border-radius: 7px; padding: 8px 10px;
 </main>
 <footer class="hintbar"><span class="drag-only">Glissez une carte dans Premiere · </span><b>✓ Gardé</b> : pas refait quand vous relancez · vos modifications sont enregistrées</footer>
 <script src="/i18n.js"></script>
+<script>
+// In the FauxRaccord window this planche is a tab (an iframe), with no window.pywebview of its own: its calls go
+// to the window, which passes them to Python. The window also says which sentence Premiere is playing.
+(function () {
+  if (window.parent === window || window.pywebview) return;
+  document.documentElement.classList.add("in-fr");
+  let n = 0;
+  const wait = {};
+  const call = (method, args) => new Promise((ok, ko) => {
+    const id = ++n;
+    wait[id] = { ok, ko };
+    window.parent.postMessage({ fr: "call", id, method, args }, "*");
+  });
+  window.pywebview = { api: new Proxy({}, { get: (_, m) => (typeof m === "string" && m !== "then" ? (...a) => call(m, a) : undefined) }) };
+  window.frSeek = (sentence) => window.parent.postMessage({ fr: "seek", sentence }, "*");
+  window.addEventListener("message", (e) => {
+    const d = e.data || {};
+    if (d.fr === "reply" && wait[d.id]) { const w = wait[d.id]; delete wait[d.id]; if (d.ok) w.ok(d.r); else w.ko(new Error(d.error)); }
+    else if (d.fr === "follow" && window.frFollow) window.frFollow(d.sentence);
+    else if (d.fr === "tab" && window.openTab) window.openTab(d.tab);
+    else if (d.fr === "reload" && typeof load === "function") load(true);
+  });
+})();
+</script>
 <script>
 "use strict";
 const $ = (s, el = document) => el.querySelector(s);
@@ -154,7 +180,7 @@ function beatHtml(b) {
     <div class="card">${img}<div class="quote" data-noi18n>« ${esc(b.text)} »</div>
       ${b.card ? `<div class="cardbar"><span class="grip" data-drag="${esc(b.id)}">⠿ ${t("Glisser la carte")}</span><button class="ins drag-only" data-ins="${esc(b.id)}" title="${esc(t("À la tête de lecture de Premiere, par le panneau FauxRaccord"))}">→ Premiere</button><span class="state"></span></div>` : ""}</div>
     <div>
-      <div class="head"><span class="id">${b.id}</span><span class="tc">${tc(b.start)} · ${b.duration} s · ${t("phrases {a}–{b}", { a: b.first + 1, b: b.last + 1 })}</span>
+      <div class="head"><span class="id" data-seek="${b.first}">${b.id}</span><span class="tc">${tc(b.start)} · ${b.duration} s · ${t("phrases {a}–{b}", { a: b.first + 1, b: b.last + 1 })}</span>
         <select data-k="technique" data-noi18n>${techs.map((x) => `<option value="${esc(x)}" ${x === b.technique ? "selected" : ""}>${esc(techLabel(x))}</option>`).join("")}</select>
         <span class="sp"></span>
         <button class="btn keep" data-lock title="${esc(t("Un plan gardé n'est pas refait quand vous relancez"))}">${b.locked ? "✓ " + t("Gardé") : "✓ " + t("Garder")}</button></div>
@@ -307,6 +333,24 @@ function dragReady() {
 }
 window.addEventListener("pywebviewready", dragReady);
 dragReady();
+
+// Premiere's playhead: the shot that holds the sentence being played comes into view. A shot's number
+// clicked: Premiere's playhead goes to its first sentence.
+window.frFollow = (idx) => {
+  if (!SB) return;
+  const b = SB.beats.find((x) => x.first <= idx && idx <= x.last) || [...SB.beats].reverse().find((x) => x.first <= idx);
+  document.querySelectorAll(".beat.playing").forEach((el) => el.classList.remove("playing"));
+  const el = b && document.getElementById(b.id);
+  if (!el) return;
+  el.classList.add("playing");
+  const head = document.querySelector("header.top");    // sticky: the shot goes just under it
+  const off = head ? head.getBoundingClientRect().height : 0;
+  window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - off - 12, behavior: "smooth" });
+};
+document.addEventListener("click", (e) => {
+  const s = e.target.closest("[data-seek]");
+  if (s && window.frSeek) window.frSeek(+s.dataset.seek);
+});
 setTimeout(dragReady, 600);
 $("#copy-md").addEventListener("click", async () => copy(await (await fetch("storyboard.md", { cache: "no-store" })).text()));
 

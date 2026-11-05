@@ -92,7 +92,11 @@ _REQ = {"id": 0, "kind": "", "data": None, "state": "", "message": "", "at": 0.0
 _SEEN = {"at": 0.0, "version": ""}    # when the panel last asked for a request (it is open in Premiere), its version
 _REQ_LOCK = threading.Lock()
 WAIT = 90.0          # a request nobody picked up is dropped after this long
-_HOOKS = {"focus": None}              # set by the window: focus(view) brings it to the front on that page
+# set by the window: focus(view) brings it to the front on that page; playhead(t, seq) where Premiere's playhead
+# is; sequence(data) the open sequence as the panel reads it; want(seq) whether it needs that sequence read;
+# status() the project and the sentence followed, shown by the panel
+_HOOKS = {"focus": None, "playhead": None, "sequence": None, "want": None, "status": None}
+_SEEK = {"t": None}                   # where the window wants Premiere's playhead (taken by the panel's next ask)
 
 
 def panel_live(within: float = 8.0) -> bool:
@@ -108,6 +112,11 @@ def request(kind: str, data: dict | None = None) -> int:
     with _REQ_LOCK:
         _REQ.update(id=_REQ["id"] + 1, kind=kind, data=data, state="waiting", message="", at=time.time())
         return _REQ["id"]
+
+
+def seek(seconds: float) -> None:
+    """Premiere's playhead to there (a sentence clicked on a planche): the panel does it at its next ask."""
+    _SEEK["t"] = float(seconds)
 
 
 def request_state(rid: int) -> dict:
@@ -205,12 +214,23 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "lang": ui_lang(), "dict": catalog(ui_lang())})
         if self.path.startswith("/pending"):      # the panel asks whether the window wants something
             from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(self.path).query)
             _SEEN["at"] = time.time()
-            _SEEN["version"] = parse_qs(urlparse(self.path).query).get("v", [""])[0][:20]
+            _SEEN["version"] = q.get("v", [""])[0][:20]
+            seq = q.get("seq", [""])[0][:200]
+            try:                                  # it also says where Premiere's playhead is
+                t = float(q["t"][0]) if "t" in q else None
+            except ValueError:
+                t = None
+            if t is not None and _HOOKS["playhead"]:
+                _HOOKS["playhead"](t, seq)
+            want = "sequence" if t is not None and _HOOKS["want"] and _HOOKS["want"](seq) else None
+            go, _SEEK["t"] = _SEEK["t"], None
             with _REQ_LOCK:
                 fresh = _REQ["state"] == "waiting" and time.time() - _REQ["at"] < WAIT
                 return self._json({"ok": True, "request": {"id": _REQ["id"], "kind": _REQ["kind"], "data": _REQ["data"]}
-                                   if fresh else None})
+                                   if fresh else None, "seek": go, "want": want,
+                                   "status": _HOOKS["status"]() if _HOOKS["status"] else None})
         if not self.path.startswith("/status"):
             return self._json({"ok": False}, 404)
         kind = self._kind()
@@ -238,6 +258,10 @@ class _Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False})
             fn(view)                      # queues it (the window does one at a time)
             return self._json({"ok": True})
+        if self.path.startswith("/sequence"):     # the open sequence, read by the panel: where the sentences are
+            if _HOOKS["sequence"]:
+                _HOOKS["sequence"](data)
+            return self._json({"ok": True})
         if self.path.startswith(("/claim", "/result")):       # the panel took the window's request / is done
             with _REQ_LOCK:
                 if data.get("id") == _REQ["id"]:
@@ -258,16 +282,17 @@ class _Handler(BaseHTTPRequestHandler):
             return self._json({"ok": False, "error": str(e), "trace": traceback.format_exc(limit=4)})
 
 
-def start(current, focus=None) -> ThreadingHTTPServer | None:
+def start(current, focus=None, playhead=None, sequence=None, want=None,
+          status=None) -> ThreadingHTTPServer | None:
     """Serve the panel in the background. `current(kind)` gives {out, derush, auto} at each request,
-    so the panel always works on what the window shows; `focus(view)` brings the window to the front.
-    None when the port is taken (another FauxRaccord)."""
+    so the panel always works on what the window shows; `focus(view)` brings the window to the front;
+    playhead / sequence / want / status (what the panel shows): see _HOOKS. None when the port is taken (another FauxRaccord)."""
     handler = type("Handler", (_Handler,), {"current": staticmethod(current)})
     try:
         server = ThreadingHTTPServer(("127.0.0.1", PORT), handler)
     except OSError:
         return None
-    _HOOKS["focus"] = focus
+    _HOOKS.update(focus=focus, playhead=playhead, sequence=sequence, want=want, status=status)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 

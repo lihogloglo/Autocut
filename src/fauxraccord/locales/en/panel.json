@@ -65,5 +65,13 @@
  "Premiere Pro n'est pas installé sur cet ordinateur.": "Premiere Pro isn't installed on this computer.",
  "FauxRaccord l'installe aussi tout seul au démarrage. Redémarrez Premiere ensuite.": "FauxRaccord also installs it by itself when it starts. Restart Premiere afterwards.",
  "Panneau Premiere mis à jour : redémarrez Premiere pour l'utiliser.": "Premiere panel updated: restart Premiere to use it.",
- "FauxRaccord est occupé : un instant…": "FauxRaccord is busy: one moment…"
+ "FauxRaccord est occupé : un instant…": "FauxRaccord is busy: one moment…",
+ "Démarrer": "Start",
+ "fermé": "closed",
+ "suit {s}": "following {s}",
+ "connecté": "connected",
+ "Nouvelle version installée, active au prochain démarrage de Premiere.": "New version installed, active the next time Premiere starts.",
+ "FauxRaccord place…": "FauxRaccord is placing…",
+ "La tête de lecture ne bouge pas : {error}": "The playhead doesn't move: {error}",
+ "{n} non importé(s)": "{n} not imported"
 }

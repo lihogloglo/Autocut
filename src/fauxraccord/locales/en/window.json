@@ -373,5 +373,19 @@
  "Panneau installé. Dans Premiere : Fenêtre › Extensions UXP › FauxRaccord (redémarrez Premiere s'il était ouvert).": "Panel installed. In Premiere: Window › UXP Plugins › FauxRaccord (restart Premiere if it was open).",
  "Ouvrez d'abord l'application Creative Cloud (elle installe le panneau), puis réessayez.": "Open the Creative Cloud app first (it installs the panel), then try again.",
  "Premiere utilise encore l'ancien panneau FauxRaccord : redémarrez Premiere.": "Premiere is still using the old FauxRaccord panel: restart Premiere.",
- "Premiere Pro n'est pas sur cet ordinateur : exportez le XML.": "Premiere Pro isn't on this computer: export the XML."
+ "Premiere Pro n'est pas sur cet ordinateur : exportez le XML.": "Premiere Pro isn't on this computer: export the XML.",
+ "Rouvrez la planche.": "Open the planche again.",
+ "Phrase introuvable dans la séquence ouverte dans Premiere.": "That sentence isn't in the sequence open in Premiere.",
+ "Collecte terminée : la planche s'ouvre.": "Collection done: the planche opens.",
+ "à glisser dans Premiere": "to drag into Premiere",
+ "Retirer de Premiere": "Remove from Premiere",
+ "Pas encore d'images : collectez-les dans Illustrations.": "No pictures yet: collect them in Illustrations.",
+ "Pas encore de plans : créez-les dans Storyboard.": "No shots yet: create them in Storyboard.",
+ "La planche sonore s'ouvre…": "The sound board is opening…",
+ "Aller à l'étape": "Go to the step",
+ "Ne suit pas Premiere": "Not following Premiere",
+ "Suit Premiere · S{n}": "Following Premiere · S{n}",
+ "Suit Premiere": "Following Premiere",
+ "Menu": "Menu",
+ "La planche va à la phrase sous la tête de lecture de Premiere": "The planche goes to the sentence under Premiere's playhead"
 }

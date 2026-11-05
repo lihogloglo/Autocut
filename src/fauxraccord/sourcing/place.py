@@ -151,6 +151,34 @@ def place_sentences(derush: Seq, target: Seq | None = None) -> dict[int, tuple[f
     return out
 
 
+def spans_from_panel(sequence: dict, derush_xml: Path | None = None) -> dict[int, tuple[float, float]]:
+    """Sentence index -> (start, end) in the sequence open in Premiere, as the panel reads it: through the
+    derush's Sxxx markers when there is a derush, else through the sequence's own markers."""
+    target = seq_from_panel(sequence)
+    derush = None
+    if derush_xml and Path(derush_xml).exists():
+        try:
+            derush = read_sequence(Path(derush_xml), prefer="derush")
+        except Exception:
+            derush = None
+    if derush and derush.markers:
+        return place_sentences(derush, target)
+    if target.markers:
+        return place_sentences(target)
+    return {}
+
+
+def sentence_at(spans: dict[int, tuple[float, float]], t: float) -> int | None:
+    """The sentence playing at `t`; between two sentences, the one just said (None before the first)."""
+    best = None
+    for idx, (start, end) in spans.items():
+        if start <= t < end:
+            return idx
+        if start <= t and (best is None or start > spans[best][0]):
+            best = idx
+    return best
+
+
 def standalone_copy(seq: Seq, uid: str, name: str) -> ET.Element:
     """Copy of a sequence that can live alone in a new XML: every file it uses is fully defined at
     its first use (an XML with several sequences defines each file once, in the first sequence)."""

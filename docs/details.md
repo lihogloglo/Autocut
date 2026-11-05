@@ -263,30 +263,33 @@ H.264 only when needed (VP9/AV1 sources, or an excerpt cut between keyframes).
 
 ### Premiere panel
 
-Instead of exporting the edit as XML and importing a B-roll XML back, the **FauxRaccord** panel
-works on the sequence open in Premiere (2025 v25.6 or later). **Placer dans Premiere** in the window
-leaves a request on the local bridge (`sourcing/bridge.py`, `/pending`); the open panel picks it up within a
-few seconds, places, and reports back (`/claim`, `/result`), and the window shows the outcome. In the panel
-itself, **Placer les illustrations**
-(or **Placer le storyboard**, with **Quoi › Storyboard**: the storyboard cards, at their beats)
-reads the sequence, asks the FauxRaccord window where each downloaded pick goes (picks you already
-dragged in by hand are left out), imports the files (bin `Illustrations - <title>`, one sub-bin
-per type; files already there are reused) and
-puts them on the tracks above the edit, creating tracks when needed. Clicking it again after
-re-editing first removes what it placed before (only the files it placed itself: your edit,
-and what you dragged in by hand, are never touched). **Retirer** removes them. Undo works, in a few steps.
+One place to work: the FauxRaccord window. The **FauxRaccord** panel in Premiere (2025 v25.6 or later) is only
+the connector between the two: a status light (« Révolution · suit S043 »), and **Démarrer** when FauxRaccord is
+closed. Every action is in the window; the panel does in Premiere what the window cannot reach. They talk on
+`127.0.0.1:47820` (`sourcing/bridge.py`): the panel asks `/pending` about twice a second.
 
-**→ Premiere** on a card of the illustrations sheet or the storyboard, and **⤓** (or the **I** key on the
-hovered sound) on the sound board, put that one file at Premiere's playhead, on the first track that is free for
-its length (V2 and up, A2 and up; a new track when none is), in the bin `FauxRaccord › Insérés`. It is the same
-as dragging the card onto the timeline, for when dragging is awkward. **Ouvrir dans FauxRaccord** in the panel
-brings the window, or one of its boards, to the front.
+- **The playhead.** Each ask carries where Premiere's playhead is (`t`, `seq`). FauxRaccord finds the sentence
+  under it: the first time, and whenever the sequence was edited (its clip count changed), the panel reads the
+  open sequence (clips and markers) and sends it to `/sequence`; the sentences are found in it the same way as for
+  the placement (`place.spans_from_panel`: through the derush's Sxxx markers, else the sequence's own). The planche
+  follows: the paragraph (Illustrations) or the shot (Storyboard) of that sentence comes into view. Clicking a
+  sentence number (`S031`) or a shot number moves Premiere's playhead there (the answer to the next ask carries
+  `seek`).
+- **Placer dans Premiere** (and **Tout placer dans Premiere** on a planche) leaves a request on the bridge; the
+  panel picks it up, places, and reports back (`/claim`, `/result`), and the window shows the outcome. It reads
+  the sequence, asks where each downloaded pick goes (picks you already dragged in by hand are left out), imports
+  the files (bin `Illustrations - <title>`, one sub-bin per type; files already there are reused) and puts them on
+  the tracks above the edit, creating tracks when needed. Placing again after re-editing first removes what it
+  placed before (only the files it placed itself: your edit, and what you dragged in by hand, are never touched).
+  **Retirer de Premiere** removes them. Undo works, in a few steps.
+- **→ Premiere** on a card of the illustrations or the storyboard, and **⤓** (or the **I** key on the hovered
+  sound) on the sound board, put that one file at Premiere's playhead, on the first track that is free for its
+  length (V2 and up, A2 and up; a new track when none is), in the bin `FauxRaccord › Insérés`. It is the same as
+  dragging the card onto the timeline, for when dragging is awkward.
 
-The panel works with FauxRaccord, which holds the projects and computes the placement (it talks to it on
-`127.0.0.1:47820`). When FauxRaccord is not running, the panel starts it in the background through the
-`fauxraccord://` link (`fauxraccord://start`; `fauxraccord://open/<sources|storyboard|sons|moments|main>` brings a
-page forward), so there is nothing to open by hand. The panel says when it and FauxRaccord are not the same
-version. Without the window:
+When FauxRaccord is not running, the panel starts it in the background through the `fauxraccord://` link
+(`fauxraccord://start`; `fauxraccord://open/<sources|storyboard|sons|moments|main>` brings a planche tab or a page
+forward). The panel says when it and FauxRaccord are not the same version. Without the window:
 `uv run fauxraccord-sources premiere "episode 12 - sources" [--derush "episode 12.fauxraccord.xml"]`.
 
 Install: nothing to do. `FauxRaccord-Setup.exe` puts the panel where Premiere looks for it, and FauxRaccord
@@ -296,9 +299,10 @@ hand). It is a plain copy, without Creative Cloud or developer tools: the `premi
 `%APPDATA%\Adobe\UXP\PluginsInfo\v1\premierepro.json` (other panels in that list are left alone). Premiere
 loads it at its next start: **Window › UXP Plugins › FauxRaccord**. Uninstalling FauxRaccord removes it.
 
-Why the panel is small: a web page inside a *docked* Premiere panel is not drawn (black, measured with Premiere
-26.5), and a drag from a panel onto the timeline is not accepted. So the boards stay in the FauxRaccord window,
-whose drag onto the timeline is a real Windows file drag, and the panel uses Premiere's own buttons.
+Why the planches are not in Premiere: a web page inside a *docked* Premiere panel is not drawn (black, measured
+with Premiere 26.5), and a drag from a panel onto the timeline is not accepted. So the planches stay in the
+FauxRaccord window, whose drag onto the timeline is a real Windows file drag; snap it beside Premiere (Windows +
+→) or put it on a second screen.
 
 ## Storyboard
 
@@ -323,7 +327,7 @@ Not searching, suggesting: what to *make* to illustrate the script, in a style d
    its whole beat. In Premiere, the panel places the same cards in the open sequence (**Quoi ›
    Storyboard**).
 
-The storyboard planche (its own FauxRaccord window: a card can be dragged into Premiere) shows the bible and every
+The storyboard planche (the window's **Planche › Storyboard** tab: a card can be dragged into Premiere) shows the bible and every
 beat: edit any field (saved as you type, the card is redrawn), change the technique, keep a beat (**✓ Gardé**), **Refaire** one beat (with an
 optional instruction: « plutôt une carte »), copy prompts and scenes, rewrite the XML. Running it
 again with the same style keeps the bible and the locked beats.

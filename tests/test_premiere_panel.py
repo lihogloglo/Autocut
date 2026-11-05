@@ -121,3 +121,94 @@ def test_link_views():
     assert _link_view("fauxraccord://open/moments/") == "moments"
     assert _link_view("fauxraccord://open/../../x") == "main"
     assert _link_view("fauxraccord:") == "main"
+
+
+# --- the panel as a connector: the playhead, the open sequence, seek ------------------------------------------
+
+def test_sentence_under_the_playhead():
+    from fauxraccord.sourcing.place import sentence_at
+    spans = {0: (1.0, 3.0), 1: (3.5, 6.0), 4: (8.0, 9.0)}
+    assert sentence_at(spans, 0.5) is None              # before the first sentence
+    assert sentence_at(spans, 2.0) == 0
+    assert sentence_at(spans, 3.2) == 0                 # between two: the one just said
+    assert sentence_at(spans, 5.9) == 1
+    assert sentence_at(spans, 20.0) == 4
+    assert sentence_at({}, 2.0) is None
+
+
+def test_the_open_sequence_gives_the_sentences_by_its_markers():
+    from fauxraccord.sourcing.place import spans_from_panel
+    seq = {"name": "derush", "fps": 25, "items": [{"start": 0, "end": 20, "in": 0, "path": "C:/r/a.mp4"}],
+           "markers": [{"name": "S001", "start": 1.0, "duration": 2.0}, {"name": "S002", "start": 4.0, "duration": 3.0}]}
+    spans = spans_from_panel(seq)
+    assert set(spans) == {0, 1} and spans[0][0] == pytest.approx(1.0) and spans[1][0] == pytest.approx(4.0)
+    assert spans_from_panel({**seq, "markers": []}) == {}
+
+
+def _serve(monkeypatch, **hooks):
+    from http.server import ThreadingHTTPServer
+    import threading
+    for k, v in hooks.items():
+        monkeypatch.setitem(bridge._HOOKS, k, v)
+    monkeypatch.setitem(bridge._REQ, "state", "")         # no request left by another test
+    server = ThreadingHTTPServer(("127.0.0.1", 0), bridge._Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}"
+
+
+def test_the_panel_tells_the_playhead_and_takes_a_seek(monkeypatch):
+    import urllib.request
+    seen, asked = [], []
+    server, url = _serve(monkeypatch, playhead=lambda t, s: seen.append((t, s)),
+                         want=lambda s: asked.append(s) or True,
+                         status=lambda: {"project": "Révolution", "sentence": "S043"})
+    try:
+        bridge.seek(12.5)
+        with urllib.request.urlopen(url + "/pending?v=0.5.0&t=731.250&seq=derush%20final") as r:
+            d = json.loads(r.read())
+        assert seen == [(731.25, "derush final")] and asked == ["derush final"]
+        assert d["seek"] == 12.5 and d["want"] == "sequence" and d["request"] is None
+        assert d["status"] == {"project": "Révolution", "sentence": "S043"}
+        with urllib.request.urlopen(url + "/pending?v=0.5.0") as r:       # no playhead (no sequence open)
+            d = json.loads(r.read())
+        assert d["seek"] is None and d["want"] is None and len(seen) == 1   # a seek is taken once
+    finally:
+        server.shutdown()
+
+
+def test_the_panel_sends_the_open_sequence(monkeypatch):
+    import urllib.request
+    got = []
+    server, url = _serve(monkeypatch, sequence=got.append)
+    try:
+        body = json.dumps({"name": "edit", "items": [], "markers": []}).encode()
+        req = urllib.request.Request(url + "/sequence", data=body, method="POST", headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req) as r:
+            assert json.loads(r.read())["ok"]
+        assert got == [{"name": "edit", "items": [], "markers": []}]
+    finally:
+        server.shutdown()
+
+
+def test_the_panel_has_no_buttons_but_start():
+    html = (ROOT / "premiere" / "index.html").read_text(encoding="utf-8")
+    assert re.findall(r"<sp-(?:action-)?button[^>]*id=\"(\w+)\"", html) == ["start"]
+    assert "sp-picker" not in html
+
+
+def test_planche_calls_reach_the_tab_api_only():
+    from fauxraccord.gui import Api
+
+    class Fake:
+        def drag(self, x):
+            return {"dragged": x}
+
+        def _secret(self):
+            return "no"
+
+    api = Api.__new__(Api)
+    api._planche = {"sources": {"url": "http://x", "api": Fake(), "out": ""}}
+    assert api.planche_call("sources", "drag", ["a1"]) == {"dragged": "a1"}
+    assert api.planche_call("sources", "_secret")["state"] == "error"
+    assert api.planche_call("storyboard", "drag", ["a1"])["state"] == "error"
+    assert api.planche_state() == {"sources": "http://x"}

@@ -22,6 +22,9 @@
       </button>
       <div class="proj-menu" id="proj-menu" role="menu" hidden></div>
     </div>
+    <nav class="steps pl-nav">
+      <button class="step" data-step="planche"><span class="num gear">▦</span><span class="txt"><b>Planche</b><small></small></span></button>
+    </nav>
     <nav class="steps" id="steps">
       <button class="step" data-step="sync"><span class="num">1</span><span class="txt"><b>Synchro</b><small></small></span></button>
       <button class="step" data-step="derush"><span class="num">2</span><span class="txt"><b>Derush</b><small></small></span></button>
@@ -331,6 +334,27 @@
       </details>
     </div>
   </main>
+
+  <!-- The planche: the window's other mode. Each tab is a planche page (iframe), kept alive while you switch;
+       Moments shows the Moments page itself. « Menu » goes back to the steps. -->
+  <section class="planche" id="planche" hidden>
+    <header class="pl-head">
+      <button class="btn small pl-menu" id="pl-menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Menu</button>
+      <b class="pl-proj" id="pl-proj" data-noi18n></b>
+      <nav class="pl-tabs" role="tablist">
+        <button class="pl-tab" data-tab="sources" role="tab">Illustrations</button>
+        <button class="pl-tab" data-tab="storyboard" role="tab">Storyboard</button>
+        <button class="pl-tab" data-tab="sons" role="tab">Sons</button>
+        <button class="pl-tab" data-tab="moments" role="tab">Moments</button>
+      </nav>
+      <span class="pl-sp"></span>
+      <button class="pl-job" id="pl-job" hidden></button>
+      <button class="chip on" id="pl-follow" aria-pressed="true" title="La planche va à la phrase sous la tête de lecture de Premiere">Suit Premiere</button>
+    </header>
+    <div class="pl-body" id="pl-body">
+      <div class="pl-empty" id="pl-empty" hidden></div>
+    </div>
+  </section>
 </div>
 <div class="veil" id="veil"><div>Déposez sur l'étape</div></div>
 <div class="toasts" id="toasts"></div>
