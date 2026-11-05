@@ -7,9 +7,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from autocut.media import ensure_ffmpeg
-from autocut.sfx import motion
-from autocut.sfx.events import VClip
+from fauxraccord.media import ensure_ffmpeg
+from fauxraccord.sfx import motion
+from fauxraccord.sfx.events import VClip
 
 
 def _render(path: Path, vf: str, seconds: float = 3.0) -> Path:

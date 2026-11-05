@@ -9,11 +9,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from autocut.media import ensure_ffmpeg
-from autocut.sfx import library as L
-from autocut.sfx.events import Event, read
-from autocut.sfx.export import export
-from autocut.sfx.plan import Bag, Cue, Settings, fit, learn, plan
+from fauxraccord.media import ensure_ffmpeg
+from fauxraccord.sfx import library as L
+from fauxraccord.sfx.events import Event, read
+from fauxraccord.sfx.export import export
+from fauxraccord.sfx.plan import Bag, Cue, Settings, fit, learn, plan
 
 FPS = 25
 
@@ -158,7 +158,7 @@ def test_measures_a_sound_where_it_hits():
 
 
 def test_the_page_replans_without_losing_hand_edits(tmp_path: Path):
-    from autocut.sfx import page
+    from fauxraccord.sfx import page
     events = [Event(float(t), "appear", 2, 0.8, size="full") for t in range(1, 10)]
     pools = {"whoosh": [snd(i, "whoosh") for i in range(3)]}
     cues = plan(events, pools, Settings(density=2, rules={"appear.full": "whoosh"}))
@@ -177,7 +177,7 @@ def test_the_page_replans_without_losing_hand_edits(tmp_path: Path):
 def test_levels_stay_in_the_editors_range_whatever_the_mastering():
     """From the user's finished edit: Swish Spin (peak -6.8) at -5/-10, Switch Click 2 (-2.0) at -15, the quiet
     Swish 3 (-16.4) still at -10/-5, Typing (-0.4) at -15. Never louder than -5, never under -20."""
-    from autocut.sfx.plan import sfx_gain
+    from fauxraccord.sfx.plan import sfx_gain
     assert -10 <= sfx_gain("whoosh", -6.8) <= -5
     assert -17 <= sfx_gain("click", -2.0) <= -13
     assert sfx_gain("whoosh", -16.4) == -5.0

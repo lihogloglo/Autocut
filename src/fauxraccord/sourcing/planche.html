@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Planche B-roll</title>
+<script src="/i18n.js"></script>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #1b1d22; --muted: #5f6576; --line: #e1e4ea;
+  --accent: #4a6cf7; --sel: #4a6cf7; --soft: #e8edff; --placed: #3651c9;
+  --libre: #1f8a4c; --citation: #2b6cb0; --verif: #b7791f; --protege: #c53030;
+  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #16171a; --panel: #212328; --ink: #e7e8ec; --muted: #9399a6; --line: #2f323a;
+          --accent: #6d8bff; --sel: #6d8bff; --soft: #252c48; --placed: #7d97ff; --shadow: none; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+header { position: sticky; top: 0; z-index: 10; background: var(--panel); border-bottom: 1px solid var(--line);
+         padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.filters select, .filters input[type=search] { font: inherit; padding: 4px 6px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--bg); color: var(--ink); }
+.count { color: var(--muted); }
+button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--bg);
+         color: var(--ink); padding: 5px 12px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+main { padding: 8px 16px 90px; max-width: 1800px; margin: 0 auto; }
+h2 { font-size: 20px; margin: 28px 0 8px; }
+.par { display: grid; grid-template-columns: minmax(240px, 340px) 1fr; gap: 16px; padding: 14px 0;
+       border-top: 1px solid var(--line); }
+@media (max-width: 800px) { .par { grid-template-columns: 1fr; } }
+.text p { margin: 0 0 6px; }
+.text .idx { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; margin-right: 4px; }
+.text .note { display: inline-block; background: var(--verif); color: #fff; border-radius: 4px; padding: 0 5px;
+              font-size: 11px; margin-left: 4px; }
+.links { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.links a { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 10px;
+           padding: 0 7px; text-decoration: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+           white-space: nowrap; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; align-content: start; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+        cursor: pointer; position: relative; display: flex; flex-direction: column; }
+.card.on { border-color: var(--sel); border-top-color: var(--kind); box-shadow: 0 0 0 1px var(--sel); }
+.card.on::after { content: "✓"; position: absolute; top: 6px; left: 6px; background: var(--sel); color: #fff;
+                  width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; }
+.thumb { aspect-ratio: 16 / 10; background: var(--line); display: block; width: 100%; object-fit: cover; }
+.thumb.contain { object-fit: contain; }
+/* what kind of file: a colour band on top of the card, a label on the picture, ▶ on videos */
+.card { --kind: #64748b; border-top: 4px solid var(--kind); }
+.card.k-video { --kind: #7c3aed; } .card.k-image { --kind: #0d9488; }
+.card.k-screenshot { --kind: #64748b; } .card.k-page { --kind: #db2777; }
+.tw { position: relative; }
+.kind { position: absolute; top: 6px; right: 6px; background: var(--kind); color: #fff; font-size: 11px;
+        font-weight: 600; border-radius: 4px; padding: 1px 6px; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.play { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.play::before { content: "▶"; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center;
+                background: rgba(0,0,0,.55); color: #fff; font-size: 18px; padding-left: 3px; box-sizing: border-box; }
+.meta { padding: 6px 8px 8px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.title { font-weight: 600; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.sub { color: var(--muted); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.badges { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.b { font-size: 11px; border-radius: 4px; padding: 0 5px; border: 1px solid var(--line); color: var(--muted); }
+.r { color: #fff; border: none; }
+.r.libre { background: var(--libre); } .r.citation { background: var(--citation); }
+.r.verif { background: var(--verif); } .r.protege { background: var(--protege); }
+.warn { color: var(--verif); font-size: 11px; }
+.actions { display: flex; gap: 8px; font-size: 12px; }
+.actions a { color: var(--accent); text-decoration: none; }
+.seg { display: flex; gap: 4px; align-items: center; font-size: 12px; flex-wrap: wrap; }
+.seg input[type=text] { width: 56px; font: inherit; padding: 1px 4px; border: 1px solid var(--line);
+  border-radius: 4px; background: var(--bg); color: var(--ink); }
+.empty { color: var(--muted); font-style: italic; }
+/* download row under each card: button → progress → downloaded */
+.dl { display: flex; gap: 8px; align-items: center; font-size: 12px; min-height: 24px; flex-wrap: wrap; }
+.dl button { padding: 2px 9px; font-size: 12px; }
+.dl a { color: var(--accent); text-decoration: none; }
+.dl .ok { color: var(--libre); font-weight: 600; }
+.dl .ins { display: none; }
+body.can-drag .dl .ins { display: inline-block; }
+.dl .err { color: var(--protege); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.dl .bar { flex: 1; min-width: 60px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.dl .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+.dl .bar.busy i { width: 35%; animation: busy 1.2s ease-in-out infinite; }
+@keyframes busy { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
+.card.got { box-shadow: var(--shadow), inset 0 -3px 0 var(--libre); }
+#dl-state { color: var(--muted); font-size: 12px; }
+#dl-state:empty { display: none; }
+.toast { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); background: var(--ink); color: var(--bg);
+         border-radius: 8px; padding: 8px 14px; font-size: 13px; z-index: 40; opacity: 0; transition: opacity .2s;
+         pointer-events: none; }
+.toast.on { opacity: .92; }
+#lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.88); display: none; z-index: 30; cursor: zoom-out;
+            overflow: auto; }
+#lightbox.open { display: block; }
+#lightbox img { display: block; margin: 2vh auto; max-width: 96vw; max-height: 96vh; }
+#lightbox.tall img { max-height: none; width: min(96vw, 1400px); }   /* tall captures: scroll through them */
+details { margin-top: 30px; color: var(--muted); }
+.period { display: inline-block; margin-top: 6px; font-size: 11px; color: var(--muted); border: 1px dashed var(--line);
+          border-radius: 10px; padding: 0 7px; }
+.b.date { color: var(--ink); border-color: var(--muted); font-weight: 600; }
+.b.date.est { font-style: italic; font-weight: 400; }
+.b.date.off { background: var(--verif); border-color: var(--verif); color: #fff; }
+.b.placed { background: var(--placed); border-color: var(--placed); color: #fff; }
+/* the same header and card on every FauxRaccord planche */
+.tabs { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.tabs button { border: 0; border-radius: 0; background: var(--panel); padding: 5px 12px; }
+.tabs button.on { background: color-mix(in srgb, var(--ink) 12%, transparent); font-weight: 600; }
+.grow { flex: 1; }
+.cardbar { display: flex; align-items: center; gap: 8px; padding: 8px; border-top: 1px solid var(--line); margin-top: auto; }
+.grip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--placed);
+        border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); background: var(--soft); border-radius: 7px; padding: 2px 8px; }
+body:not(.can-drag) .grip { display: none; }
+.keep { margin-left: auto; font-size: 12px; padding: 2px 9px; }
+.card.on .keep { background: var(--soft); border-color: var(--sel); color: var(--placed); font-weight: 600; }
+.warn { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hintbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; background: var(--panel); border-top: 1px solid var(--line);
+           padding: 7px 16px; font-size: 12.5px; color: var(--muted); }
+.hintbar b { color: var(--ink); font-weight: 600; }
+.dragstate { font-size: 11px; color: var(--accent); }
+.dragstate:empty { display: none; }
+.dragstate.err { color: var(--protege); }
+body.can-drag .card { cursor: grab; user-select: none; }
+.card.dragging { opacity: .55; cursor: grabbing; }
+.hint { color: var(--muted); font-size: 12px; }
+#peek { position: fixed; z-index: 25; pointer-events: none; background: var(--panel); border-radius: 8px;
+        box-shadow: 0 12px 48px rgba(0,0,0,.45); padding: 6px; display: none; }
+#peek.open { display: block; }
+#peek img { display: block; width: 100%; height: calc(100% - 22px); object-fit: contain; background: var(--line); }
+#peek .cap { font-size: 12px; color: var(--muted); padding-top: 4px; white-space: nowrap; overflow: hidden;
+             text-overflow: ellipsis; height: 22px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Planche B-roll</h1>
+  <div class="filters">
+    <select id="f-kind" aria-label="Type">
+      <option value="">Tous les types</option><option value="image">Images</option>
+      <option value="screenshot">Captures d'écran</option><option value="page">Pages PDF</option>
+      <option value="video">Vidéos</option>
+    </select>
+    <select id="f-rights" aria-label="Droits">
+      <option value="">Tous les droits</option><option value="libre">Libres</option>
+      <option value="citation">Citation</option><option value="à vérifier">À vérifier</option>
+      <option value="protégé">Protégés</option>
+    </select>
+    <select id="f-origin" aria-label="Origine">
+      <option value="">Liens + recherche</option><option value="lien">Liens du script</option>
+      <option value="recherche">Recherche</option>
+    </select>
+    <select id="f-date" aria-label="Date">
+      <option value="">Toutes les dates</option><option value="dated">Datées</option>
+      <option value="in">De la période du passage</option><option value="off">Hors période</option>
+    </select>
+    <input type="search" id="f-text" placeholder="Filtrer…">
+  </div>
+  <div class="tabs" id="tabs"><button data-v="all" class="on">Par phrase</button><button data-v="sel">Choisies <span id="n-sel" data-noi18n></span></button></div>
+  <span class="count" id="count"></span>
+  <span id="dl-state"></span>
+  <span class="grow"></span>
+  <button id="btn-folder" title="Le dossier « médias » : un sous-dossier par type">Ouvrir le dossier</button>
+  <button id="btn-dl">Télécharger les choisies</button>
+  <button id="btn-place" hidden title="Les images choisies (et le choix de l'IA pour les autres phrases, si c'est réglé ainsi), chacune au timecode de sa phrase">⚡ Tout placer dans Premiere</button>
+</header>
+<main id="main"><p class="empty">Chargement…</p></main>
+<footer class="hintbar" id="hintbar"><span id="drag-hint" hidden>Glissez une vignette dans Premiere · </span>survol : aperçu en grand · <b>✓ Choisie</b> : prise par « Tout placer » et « Télécharger », gardée quand vous relancez</footer>
+
+<div class="toast" id="toast"></div>
+<div id="lightbox"><img alt=""></div>
+<div id="peek"><img alt=""><div class="cap"></div></div>
+
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const RCLASS = {"libre": "libre", "citation": "citation", "à vérifier": "verif", "protégé": "protege"};
+const VIA = {wikipedia: "Wikipédia", page: "page", pdf: "PDF", owid: "OWID", archive: "Archive.org", video: "vidéo",
+             capture: "capture", commons: "Commons", europeana: "Europeana", web: "web", youtube: "YouTube",
+             rumsey: "David Rumsey", met: "Met"};
+let M, sel = {}, saveTimer, byId = {}, placed = {}, onlySel = false;
+let files = {}, jobs = {};      // on disk in médias/ (key -> path) and downloads under way, from /api/files
+const t = window.t || (s => s);
+const LANG = () => (window.I18N && I18N.lang) || "fr";
+
+const fmt = t => { if (t == null || t === "") return ""; t = Math.max(0, Math.round(+t));
+  const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
+  return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(s).padStart(2, "0"); };
+const parseT = v => { if (!v.trim()) return null; const p = v.trim().split(":").map(Number);
+  return p.some(isNaN) ? null : p.reduce((a, x) => a * 60 + x, 0); };
+const src = a => a.file || a.url;
+const KIND = {video: "🎬 " + t("Vidéo"), image: "🖼 " + t("Image"), screenshot: "🌐 " + t("Capture"),
+              page: "📄 " + t("Page PDF")};
+const thumbOf = a => a.thumb || (a.kind !== "video" ? a.url : "");
+
+// Dates: "2026-03-14" / "2026-03" / "2026", "~2019" when estimated from the picture.
+function fmtDate(d) {
+  if (!d) return "";
+  const est = d.startsWith("~"), m = d.replace(/^~/, "").match(/^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?/);
+  if (!m) return d;
+  const opts = {year: "numeric", timeZone: "UTC", ...(m[2] ? {month: "long"} : {}), ...(m[3] ? {day: "numeric"} : {})};
+  const txt = new Intl.DateTimeFormat(LANG(), opts).format(Date.UTC(+m[1], m[2] ? +m[2] - 1 : 0, m[3] ? +m[3] : 1));
+  return est ? t("vers {date}", {date: txt}) : txt;
+}
+const yearOf = d => { const m = String(d || "").match(/\d{4}/); return m ? +m[0] : null; };
+function periodRange(p) {
+  const ys = (String(p || "").match(/\b\d{4}\b/g) || []).map(Number);
+  return ys.length ? [Math.min(...ys), Math.max(...ys)] : null;
+}
+const parPeriod = {};       // paragraph -> the period it talks about
+function dateFit(a) {        // null: unknown, true: inside the paragraph's period, false: outside
+  const y = yearOf(a.date), r = periodRange(parPeriod[a.paragraph]);
+  return y == null || !r ? null : y >= r[0] && y <= r[1];
+}
+
+// Larger picture for the hover preview: Wikimedia and YouTube serve bigger versions of the same image.
+function bigOf(a) {
+  if (a.file) return a.file;
+  const t = thumbOf(a);
+  if (a.kind === "video") return /i\.ytimg\.com\/vi\//.test(t) ? t.replace(/\/[a-z]*default\.jpg.*/, "/maxresdefault.jpg") : t;
+  if (/wikimedia\.org\/.*\/\d+px-/.test(t) && a.width > 1600) return t.replace(/\/\d+px-/, "/1600px-");
+  return a.url || t;
+}
+
+async function load() {
+  M = await (await fetch("manifest.json")).json();
+  try { const r = await fetch("selection.json"); if (r.ok) sel = await r.json(); } catch (e) {}
+  byId = Object.fromEntries(M.assets.map(a => [a.id, a]));
+  for (const s of M.sentences) if (s.period && !parPeriod[s.paragraph]) parPeriod[s.paragraph] = s.period;
+  const known = new Set(M.assets.map(a => a.id));
+  for (const id of Object.keys(sel)) if (!known.has(id)) delete sel[id];
+  $("#title").textContent = M.title;
+  document.title = t("Planche — {title}", {title: M.title});
+  render();
+  refreshFiles();
+}
+
+function visible(a) {
+  const k = $("#f-kind").value, r = $("#f-rights").value, o = $("#f-origin").value, q = $("#f-text").value.toLowerCase();
+  if (k && a.kind !== k) return false;
+  if (r && a.rights !== r) return false;
+  if (o && a.origin !== o) return false;
+  if (onlySel && !sel[a.id]) return false;
+  const d = $("#f-date").value;
+  if (d === "dated" && !a.date) return false;
+  if (d === "in" && dateFit(a) !== true) return false;
+  if (d === "off" && dateFit(a) !== false) return false;
+  if (q && !(a.title + " " + a.author + " " + a.via + " " + a.note).toLowerCase().includes(q)) return false;
+  return true;
+}
+
+function card(a) {
+  const on = !!sel[a.id], c = sel[a.id] || {};
+  const dims = a.kind === "video" ? (fmt(a.duration) + (a.height ? " · " + a.height + "p" : ""))
+             : (a.width ? a.width + "×" + a.height : "");
+  const contain = a.kind === "page" || a.kind === "screenshot" ? " contain" : "";
+  const fit = dateFit(a), est = (a.date || "").startsWith("~");
+  const date = a.date ? `<span class="b date${est ? " est" : ""}${fit === false ? " off" : ""}" title="${
+    fit === false ? esc(t("Le passage parle de : {period}", {period: parPeriod[a.paragraph]})) : est ? t("date estimée d'après l'image") : t("date")
+    }">${esc(fmtDate(a.date))}</span>` : "";
+  let seg = "";
+  if (a.kind === "video") {
+    const st = c.start ?? a.start, en = c.end ?? a.end;
+    seg = `<div class="seg" data-stop>
+      ${t("extrait")} <input type="text" data-k="start" value="${fmt(st)}" placeholder="${t("début")}"> →
+      <input type="text" data-k="end" value="${fmt(en)}" placeholder="${t("fin")}">
+      <label><input type="checkbox" data-k="full" ${c.full || a.start == null ? "checked" : ""}> ${t("entière")}</label></div>`;
+  }
+  return `<div class="card k-${esc(a.kind)}${on ? " on" : ""}" data-id="${a.id}">
+    <div class="tw">${thumbOf(a) ? `<img class="thumb${contain}" loading="lazy" src="${esc(thumbOf(a))}" alt="">` : `<div class="thumb"></div>`}
+      <span class="kind">${KIND[a.kind] || esc(a.kind)}</span>${a.kind === "video" ? `<span class="play"></span>` : ""}</div>
+    <div class="meta">
+      <div class="badges">${date}<span class="b r ${RCLASS[a.rights] || "verif"}">${esc(t(a.rights))}</span>
+        <span class="b">${esc(t(VIA[a.via] || a.via))}</span>${dims ? `<span class="b">${dims}</span>` : ""}${
+        placed[a.id] ? `<span class="b placed" title="${esc(placed[a.id])}">${t("dans Premiere")}</span>` : ""}</div>
+      <div class="title" title="${esc(a.title)}">${esc(a.title || t("Sans titre"))}</div>
+      <div class="sub" title="${esc(a.author + " " + a.licence)}">${esc([a.author, a.licence].filter(Boolean).join(" · "))}</div>
+      ${a.note ? `<div class="warn">${esc(a.note)}</div>` : ""}
+      ${seg}
+      <div class="dl" data-stop></div>
+      <div class="dragstate"></div>
+      <div class="actions" data-stop>
+        ${a.kind === "page" || a.kind === "screenshot" ? `<a href="#" data-zoom="${esc(src(a))}">${t("plein écran")}</a>` : ""}
+        <a href="${esc(a.source_page || a.url)}" target="_blank" rel="noopener">${t("source ↗")}</a>
+        ${a.kind === "video" ? `<a href="${esc(a.url)}${a.start != null ? (a.url.includes("?") ? "&" : "?") + "t=" + Math.round(a.start) : ""}" target="_blank" rel="noopener">${t("regarder ↗")}</a>` : ""}
+      </div>
+    </div>
+    <div class="cardbar"><span class="grip">⠿ ${t("Glisser")}</span><button class="keep" data-act="keep">${on ? "✓ " + t("Choisie") : "✓ " + t("Choisir")}</button></div></div>`;
+}
+
+function render() {
+  const bySentence = {};
+  for (const s of M.sentences) bySentence[s.idx] = s;
+  const byPar = {};
+  for (const a of M.assets) if (visible(a)) (byPar[a.paragraph] ||= []).push(a);
+  const filtering = ["#f-kind", "#f-rights", "#f-origin", "#f-date", "#f-text"].some(s => $(s).value) || onlySel;
+  let html = "", shown = 0;
+  for (const sec of M.sections) {
+    if (sec.skip) continue;
+    const sents = M.sentences.filter(s => s.section === sec.idx);
+    let pars = [...new Set(sents.map(s => s.paragraph))];
+    if (filtering) pars = pars.filter(p => byPar[p]);
+    if (!pars.length) continue;
+    html += `<h2>${esc(sec.title || t("Début"))}</h2>`;
+    for (const p of pars) {
+      const ps = sents.filter(s => s.paragraph === p);
+      const assets = (byPar[p] || []).sort((x, y) => (x.origin === y.origin ? 0 : x.origin === "lien" ? -1 : 1)
+        || x.sentence - y.sentence || y.score - x.score);
+      shown += assets.length;
+      const period = parPeriod[p] ? `<div class="period" title="${t("période dont parle le passage")}">${esc(t("période : {period}", {period: parPeriod[p]}))}</div>` : "";
+      const text = ps.map(s => `<p><span class="idx">S${String(s.idx + 1).padStart(3, "0")}</span>${esc(s.text)}${
+        s.notes.map(n => `<span class="note">${esc(n)}</span>`).join("")}</p>${s.links.length ? `<div class="links">${
+        s.links.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener" title="${esc(l.url)}">${esc(l.anchor)} · ${
+        esc(new URL(l.url).hostname.replace(/^www\./, ""))}</a>`).join("")}</div>` : ""}`).join("");
+      html += `<section class="par"><div class="text">${text}${period}</div><div class="grid">${
+        assets.length ? assets.map(card).join("") : `<p class="empty">${t("aucun candidat")}</p>`}</div></section>`;
+    }
+  }
+  if (M.errors.length) {
+    html += `<details><summary>${t("{n} problème(s) pendant la collecte", {n: M.errors.length})}</summary><ul>${
+      M.errors.map(e => `<li>${esc(e.url)} — ${esc(e.error)}</li>`).join("")}</ul></details>`;
+  }
+  $("#main").innerHTML = html;
+  updateCount(shown);
+  paintAll();
+}
+
+function updateCount(shown) {
+  const n = Object.keys(sel).length;
+  if (shown != null) $("#count").dataset.shown = shown;
+  $("#count").textContent = t("{shown} images affichées", {shown: $("#count").dataset.shown});
+  $("#n-sel").textContent = n;
+  const todo = Object.keys(sel).filter(id => byId[id] && !files[keyOf(id)]).length;
+  $("#btn-dl").textContent = todo ? t("Télécharger les choisies ({n})", {n: todo}) : t("Choisies téléchargées");
+  $("#btn-dl").disabled = !todo;
+  const got = Object.keys(sel).filter(id => byId[id] && files[keyOf(id)]).length;
+  const busy = Object.values(jobs).filter(j => j.state === "working").length;
+  $("#dl-state").textContent = [n ? t("{got}/{n} téléchargés", {got, n}) : "",
+                                busy ? t("{n} en cours", {n: busy}) : ""].filter(Boolean).join(" · ");
+}
+
+// --- downloads into médias/ (one file per item, or per excerpt of a video) ------------------------
+function keyOf(id) {
+  const a = byId[id];
+  if (!a || a.kind !== "video") return id;
+  const c = choiceOf(id);
+  return c.full || c.start == null || c.end == null ? id : `${id}@${Math.round(c.start)}-${Math.round(c.end)}`;
+}
+function paint(c) {
+  const id = c.dataset.id, k = keyOf(id), box = c.querySelector(".dl");
+  if (!box) return;
+  const f = files[k], j = jobs[k];
+  let html, state;
+  if (f) {
+    state = "ok:" + f;
+    html = `<span class="ok" title="${esc(f)}">✓ ${t("téléchargé")}</span><a href="#" data-act="reveal">${t("dans le dossier")}</a><button data-act="ins" class="ins" title="${esc(t("À la tête de lecture de Premiere, par le panneau FauxRaccord"))}">→ Premiere</button>`;
+  } else if (j && j.state === "working") {
+    const p = j.progress;
+    state = "w:" + p;
+    html = p != null ? `<span class="bar"><i style="width:${Math.round(p * 100)}%"></i></span><span>${Math.round(p * 100)} %</span>`
+                     : `<span class="bar busy"><i></i></span><span>${t("téléchargement…")}</span>`;
+  } else if (j && j.state === "error") {
+    state = "e:" + j.error;
+    html = `<button data-act="dl">${t("Réessayer")}</button><span class="err" title="${esc(j.error)}">${esc(t("échec : {error}", {error: j.error}))}</span>`;
+  } else {
+    state = "none";
+    html = `<button data-act="dl" title="${esc(t("Dans le dossier « médias », sans doublon ; coche aussi la vignette"))}">⬇ ${t("Télécharger")}</button><button data-act="ins" class="ins" title="${esc(t("À la tête de lecture de Premiere, par le panneau FauxRaccord"))}">→ Premiere</button>`;
+  }
+  if (box.dataset.state !== state) { box.dataset.state = state; box.innerHTML = html; }
+  c.classList.toggle("got", !!f);
+}
+function paintAll() { for (const c of document.querySelectorAll(".card")) paint(c); updateCount(); }
+let filesTimer;
+async function refreshFiles() {
+  clearTimeout(filesTimer);
+  try { const r = await (await fetch("/api/files")).json(); files = r.files || {}; jobs = r.jobs || {}; }
+  catch (e) { return; }
+  paintAll();
+  if (Object.values(jobs).some(j => j.state === "working")) filesTimer = setTimeout(refreshFiles, 1000);
+}
+async function download(ids) {
+  for (const id of ids) {
+    sel[id] ||= {};
+    const c = document.querySelector(`.card[data-id="${id}"]`);
+    if (c) c.classList.add("on");
+  }
+  save();
+  const items = ids.filter(id => !files[keyOf(id)]).map(id => ({id, choice: choiceOf(id)}));
+  if (!items.length) return;
+  for (const it of items) jobs[keyOf(it.id)] = {state: "working", progress: null};
+  paintAll();
+  try { await fetch("/api/download", {method: "POST", body: JSON.stringify({items})}); }
+  catch (e) { toast(t("échec : {error}", {error: String(e)})); }
+  refreshFiles();
+}
+let toastTimer;
+function toast(msg) {
+  const el = $("#toast");
+  el.textContent = msg; el.classList.add("on");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("on"), 3500);
+}
+
+function save() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => fetch("/api/selection", {method: "POST", body: JSON.stringify(sel)}), 300);
+  updateCount();
+}
+
+document.addEventListener("click", e => {
+  if (justDragged) { justDragged = false; return; }
+  const zoom = e.target.closest("[data-zoom]");
+  if (zoom) {
+    e.preventDefault();
+    const lb = $("#lightbox"), img = $("#lightbox img");
+    img.onload = () => lb.classList.toggle("tall", img.naturalHeight > img.naturalWidth * 0.75);
+    img.src = zoom.dataset.zoom; lb.scrollTop = 0; lb.classList.add("open");
+    return;
+  }
+  const act = e.target.closest("[data-act]"), card = e.target.closest(".card");
+  if (act && card) {
+    e.preventDefault();
+    if (act.dataset.act === "dl") download([card.dataset.id]);
+    if (act.dataset.act === "ins") insertCard(card);
+    if (act.dataset.act === "keep") {
+      const id = card.dataset.id;
+      if (sel[id]) delete sel[id]; else sel[id] = {};
+      card.classList.toggle("on", !!sel[id]);
+      act.textContent = "✓ " + (sel[id] ? t("Choisie") : t("Choisir"));
+      save();
+    }
+    if (act.dataset.act === "reveal") fetch("/api/reveal", {method: "POST", body: JSON.stringify({key: keyOf(card.dataset.id)})});
+    return;
+  }
+  if (e.target.closest("[data-stop]")) return;
+  const c = e.target.closest(".card");
+  if (!c) return;
+  const id = c.dataset.id;
+  if (sel[id]) delete sel[id]; else sel[id] = {};
+  c.classList.toggle("on", !!sel[id]);
+  const k = c.querySelector(".keep");
+  if (k) k.textContent = "✓ " + (sel[id] ? t("Choisie") : t("Choisir"));
+  save();
+});
+document.addEventListener("change", e => {
+  const inp = e.target.closest(".seg input");
+  if (!inp) return;
+  const c = e.target.closest(".card"), id = c.dataset.id;
+  sel[id] ||= {};
+  c.classList.add("on");
+  if (inp.dataset.k === "full") sel[id].full = inp.checked;
+  else { const t = parseT(inp.value); if (t != null) { sel[id][inp.dataset.k] = t; sel[id].full = false;
+    c.querySelector('[data-k="full"]').checked = false; } }
+  save();
+  paint(c);                 // another excerpt is another file
+});
+$("#lightbox").addEventListener("click", () => $("#lightbox").classList.remove("open"));
+for (const id of ["f-kind", "f-rights", "f-origin", "f-date"]) $("#" + id).addEventListener("change", render);
+for (const b of document.querySelectorAll("#tabs button")) b.addEventListener("click", () => {
+  onlySel = b.dataset.v === "sel";
+  document.querySelectorAll("#tabs button").forEach(x => x.classList.toggle("on", x === b));
+  render();
+});
+$("#btn-place").addEventListener("click", async () => {
+  if (!API()) return;
+  const r = await API().place_all();
+  toast(r.ok ? t("Téléchargement des images, puis le panneau FauxRaccord de Premiere les place. Suivi dans la fenêtre FauxRaccord.") : r.message);
+});
+let ft; $("#f-text").addEventListener("input", () => { clearTimeout(ft); ft = setTimeout(render, 250); });
+
+$("#btn-dl").addEventListener("click", () => {
+  const ids = Object.keys(sel).filter(id => byId[id] && !files[keyOf(id)]
+                                         && !(jobs[keyOf(id)] && jobs[keyOf(id)].state === "working"));
+  if (!ids.length) return toast(t("Déjà en cours de téléchargement."));
+  download(ids);
+  toast(t("{n} téléchargement(s) lancé(s) dans « médias »", {n: ids.length}));
+});
+$("#btn-folder").addEventListener("click", () => fetch("/api/open", {method: "POST", body: "{}"}));
+// --- hover preview ---------------------------------------------------------------------------
+const peek = $("#peek"), peekImg = $("#peek img");
+let peekTimer, peekCard;
+function showPeek(c) {
+  const a = byId[c.dataset.id], th = c.querySelector("img.thumb");
+  if (!a || !th) return;
+  const r = c.getBoundingClientRect(), vw = innerWidth, vh = innerHeight, m = 14;
+  const right = vw - r.right - 2 * m, left = r.left - 2 * m;
+  const ratio = th.naturalWidth && th.naturalHeight ? th.naturalWidth / th.naturalHeight : 16 / 10;
+  const overlay = Math.max(right, left) < 360;
+  const side = overlay ? vw - 2 * m : Math.max(right, left);
+  const boxW = Math.min(side, 1100, (vh - 2 * m - 34) * ratio + 12);
+  const boxH = Math.min(vh - 2 * m, (boxW - 12) / ratio + 34);
+  peek.style.width = boxW + "px"; peek.style.height = boxH + "px";
+  peek.style.left = (overlay ? (vw - boxW) / 2 : right >= left ? r.right + m : r.left - m - boxW) + "px";
+  peek.style.top = Math.max(m, Math.min(vh - boxH - m, r.top + r.height / 2 - boxH / 2)) + "px";
+  peekImg.src = th.currentSrc || th.src;
+  const big = bigOf(a), orig = a.file || a.url;
+  if (big && big !== peekImg.src) {
+    const im = new Image();
+    im.onload = () => { if (peekCard === c) peekImg.src = im.src; };
+    im.onerror = () => { if (peekCard === c && a.kind !== "video" && orig && im.src !== orig) im.src = orig; };
+    im.src = big;
+  }
+  $("#peek .cap").textContent = [fmtDate(a.date), a.title, a.author].filter(Boolean).join(" · ");
+  peek.classList.add("open");
+  if (API() && a.kind !== "video") API().prepare(a.id, {}).catch(() => {});   // so a drag starts at once
+}
+function hidePeek() { clearTimeout(peekTimer); peekCard = null; peek.classList.remove("open"); }
+document.addEventListener("mouseover", e => {
+  const c = e.target.closest(".card");
+  if (c === peekCard) return;
+  hidePeek();
+  if (!c || down) return;
+  peekCard = c;
+  peekTimer = setTimeout(() => peekCard === c && showPeek(c), 280);
+});
+document.addEventListener("scroll", hidePeek, {passive: true});
+$("#main").addEventListener("mouseleave", hidePeek);
+
+// --- drag into Premiere: only inside the FauxRaccord window, which gives the page a native file drag ---
+const API = () => window.pywebview && window.pywebview.api;
+let down = null, justDragged = false;
+const choiceOf = id => { const c = sel[id] || {}, a = byId[id];
+  return {start: c.start ?? a.start, end: c.end ?? a.end, full: c.full ?? a.start == null}; };
+function dragState(c, txt, err) {
+  const d = c.querySelector(".dragstate");
+  if (d) { d.textContent = txt || ""; d.classList.toggle("err", !!err); }
+}
+document.addEventListener("dragstart", e => { if (e.target.closest && e.target.closest(".card")) e.preventDefault(); });
+document.addEventListener("dragover", e => e.preventDefault());     // a drop back on the page must not open the file
+document.addEventListener("drop", e => e.preventDefault());
+document.addEventListener("mousedown", e => {
+  justDragged = false;
+  if (e.button !== 0 || !API()) return;
+  const c = e.target.closest(".card");
+  if (c && !e.target.closest("[data-stop]")) down = {x: e.clientX, y: e.clientY, c};
+});
+document.addEventListener("mouseup", () => { down = null; });
+document.addEventListener("mousemove", e => {
+  if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) < 6) return;
+  const c = down.c;
+  down = null; justDragged = true; hidePeek();
+  drag(c);
+});
+async function drag(c) {
+  const id = c.dataset.id, a = byId[id];
+  c.classList.add("dragging");
+  dragState(c, a.kind === "video" ? "" : t("préparation…"));
+  let r;
+  try { r = await API().drag(id, choiceOf(id)); } catch (e) { r = {state: "error", error: String(e)}; }
+  c.classList.remove("dragging");
+  refreshFiles();
+  if (r.state === "working") { dragState(c, ""); return waitReady(c, id); }
+  if (r.state === "error") return dragState(c, t("échec : {error}", {error: r.error}), true);
+  if (r.dropped) { dragState(c, ""); return markPlaced(); }
+  dragState(c, t("prêt : glissez dans Premiere"));
+}
+async function waitReady(c, id) {
+  const r = await API().prepare(id, choiceOf(id));
+  if (r.state === "working") return setTimeout(() => waitReady(c, id), 1500);
+  refreshFiles();
+  dragState(c, r.state === "error" ? t("échec : {error}", {error: r.error}) : t("prêt : glissez dans Premiere"), r.state === "error");
+}
+// « → Premiere »: at Premiere's playhead, through the FauxRaccord panel (no drag needed)
+async function insertCard(c) {
+  const id = c.dataset.id;
+  dragState(c, t("→ Premiere…"));
+  let r;
+  try { r = await API().insert(id, choiceOf(id)); } catch (e) { r = {state: "error", error: String(e)}; }
+  refreshFiles();
+  if (r.state === "working") { dragState(c, t("téléchargement… puis dans Premiere")); return setTimeout(() => insertCard(c), 1500); }
+  if (r.state === "error") return dragState(c, t("échec : {error}", {error: r.error}), true);
+  followInsert(r.id, (txt, err) => dragState(c, txt, err), markPlaced);
+}
+function followInsert(id, say, done) {
+  const tick = async () => {
+    let r;
+    try { r = await API().insert_state(id); } catch (e) { return say(String(e), true); }
+    if (r.state === "done") { say("✓ " + t("dans Premiere")); return done && done(); }
+    if (r.state === "error") return say(r.message, true);
+    if (r.state === "expired" || r.state === "gone") return say(t("Le panneau n'a pas répondu."), true);
+    setTimeout(tick, 600);
+  };
+  tick();
+}
+async function markPlaced() {
+  try { placed = await API().dragged(); } catch (e) { return; }
+  for (const c of document.querySelectorAll(".card")) {
+    const id = c.dataset.id;
+    if (placed[id] && !c.querySelector(".b.placed")) c.querySelector(".badges").insertAdjacentHTML("beforeend",
+      `<span class="b placed" title="${esc(placed[id])}">${t("dans Premiere")}</span>`);
+  }
+}
+function dragReady() {
+  if (!API() || document.body.classList.contains("can-drag")) return;
+  document.body.classList.add("can-drag");
+  $("#drag-hint").hidden = false;
+  $("#btn-place").hidden = false;
+  markPlaced();
+}
+window.addEventListener("pywebviewready", dragReady);
+
+load().then(dragReady);
+</script>
+</body>
+</html>

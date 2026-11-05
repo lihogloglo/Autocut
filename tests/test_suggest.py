@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from autocut.sfx import board as B
-from autocut.sfx import suggest as S
+from fauxraccord.sfx import board as B
+from fauxraccord.sfx import suggest as S
 
 SCRIPT = """# La révolte
 
@@ -29,7 +29,7 @@ class FakeEpi:
 
     def search(self, term, kind, n=12, max_ms=6000, min_ms=None):
         self.calls.append(("sfx", term, min_ms))
-        from autocut.sfx.library import Snd
+        from fauxraccord.sfx.library import Snd
         return [Snd(f"epidemic:{term}-{i}", "epidemic", kind, f"{term} {i}", dur=60.0) for i in range(2)]
 
 

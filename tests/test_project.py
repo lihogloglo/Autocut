@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from autocut import gui, project
+from fauxraccord import gui, project
 
 
 def touch(p: Path, text: str = "x", age: float = 0) -> Path:
@@ -36,10 +36,10 @@ def test_detects_a_shoot_folder(tmp_path: Path):
     assert "derush_out" not in found and found["step"] == "derush"
 
 
-def test_autocut_outputs_chain_to_the_next_step(tmp_path: Path):
+def test_fauxraccord_outputs_chain_to_the_next_step(tmp_path: Path):
     sync = touch(tmp_path / "Ep.sync.xml", age=300)
-    derush = touch(tmp_path / "Ep.autocut.xml", age=200)
-    touch(tmp_path / "Ep.autocut.txt")                     # the derush report is not a script
+    derush = touch(tmp_path / "Ep.fauxraccord.xml", age=200)
+    touch(tmp_path / "Ep.fauxraccord.txt")                     # the derush report is not a script
     found = project.detect(tmp_path)
     assert "script" not in found
     assert found["sync_out"] == str(sync) and found["xml"] == str(sync) and found["mode"] == "all"
@@ -51,10 +51,10 @@ def test_autocut_outputs_chain_to_the_next_step(tmp_path: Path):
 
 def test_saved_state_wins_and_blanks_are_filled(tmp_path: Path):
     mine = touch(tmp_path / "choisi.xml", age=100)
-    touch(tmp_path / "Ep.autocut.xml")
+    touch(tmp_path / "Ep.fauxraccord.xml")
     data = project.merge({"place_xml": str(mine), "step": "storyboard", "derush_out": str(tmp_path / "gone.xml")}, tmp_path)
     assert data["place_xml"] == str(mine) and data["step"] == "storyboard"
-    assert data["derush_out"] == str(tmp_path / "Ep.autocut.xml")     # missing file forgotten, then found again
+    assert data["derush_out"] == str(tmp_path / "Ep.fauxraccord.xml")     # missing file forgotten, then found again
 
 
 @pytest.fixture
@@ -67,7 +67,7 @@ def api(tmp_path: Path, monkeypatch):
 def test_each_project_keeps_its_own_files(api, tmp_path: Path):
     a = touch(tmp_path / "A" / "A.md")
     b = touch(tmp_path / "B" / "B.md")
-    a_derush = touch(tmp_path / "A" / "A.autocut.xml")
+    a_derush = touch(tmp_path / "A" / "A.fauxraccord.xml")
     api.add("derush", [str(a)])
     assert api._state["project"] == str((tmp_path / "A").resolve())
     assert api._state["derush_out"] == str(a_derush)
@@ -103,7 +103,7 @@ def test_page_cache_is_emptied_only_when_the_interface_changed(tmp_path):
     stayed in WebView2's cache until a reload. It is emptied when web/ changed, and only then."""
     import os
 
-    from autocut.gui import fresh_page_cache
+    from fauxraccord.gui import fresh_page_cache
     web, storage = tmp_path / "web", tmp_path / "webview"
     web.mkdir()
     (web / "app.js").write_text("v1", encoding="utf-8")

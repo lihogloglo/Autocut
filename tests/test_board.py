@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from autocut.sfx import board as B
+from fauxraccord.sfx import board as B
 
 
 def write_wav(path: Path, seconds: float, sr: int = 48000, ch: int = 2) -> Path:
@@ -164,7 +164,7 @@ def test_starting_tiles_and_old_stars(tmp_path, monkeypatch):
 
 class FakeEpi:
     def search(self, term, kind, n=12, max_ms=6000, min_ms=None):
-        from autocut.sfx.library import Snd
+        from fauxraccord.sfx.library import Snd
         self.term = term
         return [Snd(f"epidemic:{term}-{i}", "epidemic", kind, f"{term} {i}", dur=1.0) for i in range(3)]
 

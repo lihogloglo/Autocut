@@ -3,29 +3,53 @@
 <head>
   <meta charset="utf-8">
   <style>
-    body { padding: 12px; color: var(--uxp-host-text-color); font-size: 12px; }
-    #status { margin: 6px 0 12px; color: var(--uxp-host-text-color-secondary); }
+    body { padding: 10px 12px; color: var(--uxp-host-text-color); font-size: 12px; }
+    .head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+    .head b { font-size: 13px; }
+    #dot { width: 8px; height: 8px; border-radius: 4px; background: #8a8a8a; }
+    #dot.ok { background: #3fb950; }
+    #dot.wait { background: #d29922; }
+    #dot.bad { background: #f85149; }
+    #conn { color: var(--uxp-host-text-color-secondary); }
+    #project { color: var(--uxp-host-text-color-secondary); margin: 2px 0 10px; }
+    .sec { margin: 10px 0 4px; color: var(--uxp-host-text-color-secondary); font-size: 11px; }
+    .row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+    #status { margin: 8px 0 6px; color: var(--uxp-host-text-color-secondary); }
     #status.err { color: #f85149; }
     #status.ok { color: #3fb950; }
-    .row { display: flex; gap: 8px; margin-bottom: 12px; }
     #log { font-family: Consolas, monospace; font-size: 11px; white-space: pre-wrap; overflow-y: auto;
-           max-height: 260px; color: var(--uxp-host-text-color-secondary); }
+           max-height: 220px; color: var(--uxp-host-text-color-secondary); }
     #log .err { color: #f85149; }
+    #start { display: none; }
   </style>
 </head>
 <body>
-  <sp-heading size="XS">Autocut</sp-heading>
+  <div class="head"><div id="dot"></div><b>FauxRaccord</b><span id="conn">…</span></div>
+  <div id="project"></div>
+  <sp-button id="start" size="s" variant="cta">Démarrer FauxRaccord</sp-button>
+
+  <div class="sec" id="sec-place">Placer dans la séquence ouverte</div>
   <sp-picker id="kind" label="Quoi" size="s">
     <sp-menu slot="options">
       <sp-menu-item value="sources" selected>Illustrations</sp-menu-item>
       <sp-menu-item value="storyboard">Storyboard</sp-menu-item>
     </sp-menu>
   </sp-picker>
-  <div id="status">…</div>
   <div class="row">
-    <sp-button id="place" variant="cta">Placer les illustrations</sp-button>
-    <sp-button id="remove" variant="secondary">Retirer</sp-button>
+    <sp-button id="place" size="s" variant="cta">Placer les illustrations</sp-button>
+    <sp-button id="remove" size="s" variant="secondary">Retirer</sp-button>
   </div>
+
+  <div class="sec" id="sec-open">Ouvrir dans FauxRaccord</div>
+  <div class="row">
+    <sp-action-button size="s" data-open="sources">Illustrations</sp-action-button>
+    <sp-action-button size="s" data-open="storyboard">Storyboard</sp-action-button>
+    <sp-action-button size="s" data-open="sons">Sons</sp-action-button>
+    <sp-action-button size="s" data-open="moments">Moments</sp-action-button>
+    <sp-action-button size="s" data-open="main">FauxRaccord</sp-action-button>
+  </div>
+
+  <div id="status"></div>
   <div id="log"></div>
   <script src="index.js"></script>
 </body>

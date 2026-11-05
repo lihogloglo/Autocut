@@ -3,8 +3,8 @@ from pathlib import Path
 
 import numpy as np
 
-from autocut.media import MediaInfo
-from autocut.sync import SR, make_track, pcm_from_float, sync_tracks
+from fauxraccord.media import MediaInfo
+from fauxraccord.sync import SR, make_track, pcm_from_float, sync_tracks
 
 FPS = 25
 

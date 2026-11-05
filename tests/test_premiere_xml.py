@@ -2,11 +2,11 @@ import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
 
-from autocut.media import MediaInfo
-from autocut.premiere_xml import PremiereSequence, pathurl_to_path
-from autocut.timeline import Clip
-from autocut.sync import Placed, SyncResult
-from autocut.xmeml import sync_document
+from fauxraccord.media import MediaInfo
+from fauxraccord.premiere_xml import PremiereSequence, pathurl_to_path
+from fauxraccord.timeline import Clip
+from fauxraccord.sync import Placed, SyncResult
+from fauxraccord.xmeml import sync_document
 
 
 def test_pathurl_forms():

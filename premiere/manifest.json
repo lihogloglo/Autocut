@@ -1,8 +1,8 @@
 {
   "manifestVersion": 5,
-  "id": "com.lihogloglo.autocut",
-  "name": "Autocut",
-  "version": "0.2.2",
+  "id": "com.lihogloglo.fauxraccord",
+  "name": "FauxRaccord",
+  "version": "0.4.1",
   "main": "index.html",
   "host": {
     "app": "premierepro",
@@ -11,9 +11,9 @@
   "entrypoints": [
     {
       "type": "panel",
-      "id": "autocut",
+      "id": "fauxraccord",
       "label": {
-        "default": "Autocut"
+        "default": "FauxRaccord"
       },
       "minimumSize": {
         "width": 260,
@@ -33,6 +33,10 @@
     "network": {
       "domains": "all"
     },
-    "localFileSystem": "fullAccess"
+    "localFileSystem": "fullAccess",
+    "launchProcess": {
+      "schemes": ["fauxraccord"],
+      "extensions": []
+    }
   }
 }

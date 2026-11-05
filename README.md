@@ -1,13 +1,13 @@
 <p align="center"><img src="docs/logo.svg" width="96" alt=""></p>
 
-<h1 align="center">Autocut</h1>
+<h1 align="center">FauxRaccord</h1>
 
 <p align="center">From a long talking-head recording and its script to an edit with illustrations, in Premiere Pro.<br>
 Free, open source, runs on your PC. Windows. Interface in French and English; videos in French or English.</p>
 
 ---
 
-Autocut does the slow parts of a YouTube video essay for you:
+FauxRaccord does the slow parts of a YouTube video essay for you:
 
 1. **Synchro**: lines up the camera files and the external audio by their sound, like PluralEyes.
 2. **Derush**: keeps the best take of every line of your script and removes the silences, false starts and stumbles. You get a Premiere sequence, with every sentence marked.
@@ -52,14 +52,14 @@ flowchart LR
 
 ## Install
 
-1. **Download `Autocut-Setup.exe`** from the [latest release](https://github.com/lihogloglo/Autocut/releases/latest) and run it. No admin rights needed. It installs Python and Autocut's libraries (about 2 GB, a few minutes), adds Autocut to the Start menu and the desktop, and opens it.
+1. **Download `FauxRaccord-Setup.exe`** from the [latest release](https://github.com/lihogloglo/FauxRaccord/releases/latest) and run it. No admin rights needed. It installs Python and FauxRaccord's libraries (about 2 GB, a few minutes), adds FauxRaccord to the Start menu and the desktop, and opens it.
    Windows may show « Windows protected your PC » (the installer is not signed): **More info › Run anyway**.
-2. In the window, open **Installation** (bottom left) and install what is missing — ffmpeg, the speech model, the Premiere panel. One click each.
+2. In the window, open **Installation** (bottom left) and install what is missing — ffmpeg, the speech model. One click each. The Premiere panel is already there: restart Premiere, then *Window › UXP Plugins › FauxRaccord*. It starts FauxRaccord by itself when it is not running.
 3. Open **IA** and connect an AI.
 
-To update: **Installation › Autocut › Update** (it closes, updates and reopens). To uninstall: Windows Settings › Apps › Autocut (your settings, keys and the downloaded speech model are kept).
+To update: **Installation › FauxRaccord › Update** (it closes, updates and reopens). To uninstall: Windows Settings › Apps › FauxRaccord (your settings, keys and the downloaded speech model are kept).
 
-From the source instead (to work on the code): `git clone` this repository and double-click `Autocut.bat` (installs uv and the packages, puts a shortcut on the desktop); update with `git pull` and `Autocut.bat` again.
+From the source instead (to work on the code): `git clone` this repository and double-click `FauxRaccord.bat` (installs uv and the packages, puts a shortcut on the desktop); update with `git pull` and `FauxRaccord.bat` again.
 
 ## Connecting an AI
 
@@ -72,7 +72,7 @@ Use what you already have. On the **IA** page:
 | ChatGPT Plus/Pro | **Installer**, then **Connecter** (Codex) | included |
 | Claude Pro/Max | **Installer**, then **Connecter** (Claude Code) | included |
 
-Autocut uses your subscription through the official app of each company, signed in with your own account. **Tester** checks that it works. Subscriptions are slower, and count against your plan's usage limits.
+FauxRaccord uses your subscription through the official app of each company, signed in with your own account. **Tester** checks that it works. Subscriptions are slower, and count against your plan's usage limits.
 
 ## Using it
 
@@ -80,11 +80,12 @@ Everything starts from your **script**: a text or Markdown file, one `##` headin
 
 - **Synchro**: drop the rushes (or their folder), click **Synchroniser**, import the `.sync.xml` in Premiere.
 - **Derush**: drop the sequence (the Synchro result, or any sequence exported from Premiere with *File › Export › Final Cut Pro XML*) and the script, click **Derusher**. It also continues a half-done derush without touching your cuts.
-- **Illustrations**: **Collecter**, tick pictures on the contact sheet that opens in its own window (hover a thumbnail to enlarge it, ⬇ to download one, drag it into Premiere to place it by hand), **Télécharger la sélection**, then **Placer** writes the XML with each picture at its sentence — or, in Premiere, *Window › UXP plugins › Autocut* › **Placer les illustrations**.
-- **Sons**: drop the finished edit (*File › Export › Final Cut Pro XML*), add your sound folders or your Epidemic key, **Analyser le montage**. The editor opens: Space plays the voice with the sounds, ←/→ jumps from sound to sound, A/Z changes the take, the density and the rules (which sound for which moment) redo the plan at once and keep what you adjusted. **Placer dans Premiere** writes the `.xml`.
-- **Storyboard**: write the style, **Créer le storyboard**. Edit or redo any shot on the page that opens; place the cards with the Premiere panel (**Quoi › Storyboard**) or import the `.xml`.
+- **Illustrations**, **Storyboard** and **Sons** share one layout, and each works on its own: **Entrées** (the script and the edit, as drop zones; the edit is the same for every step), **Consignes pour l'IA** (what you want, in your words, and the button that starts the AI), and **Résultat**: the **planche** — the board where you look, listen and drag straight into the Premiere timeline — and, beside it, **Automatique**, which places everything for you.
+- **Illustrations**: **Collecter**, then **Ouvrir la planche**: drag a thumbnail into Premiere where you want it (hover to enlarge, ⬇ to download), or mark it **✓ Choisie**. **Placer dans Premiere** puts the chosen pictures — and, unless you switch it off, the AI's best picture for the other sentences — each at its sentence, through the Premiere panel (*Window › UXP Plugins › FauxRaccord*); **→ Premiere** on a card puts just that one at the playhead; **ou exporter le XML** writes the same thing as a file to import.
+- **Storyboard**: write the style, **Créer les plans**. On the planche, edit or redo any shot, mark the ones to keep (**✓ Gardé**: not redone when you run again), drag a card into Premiere; or **Placer dans Premiere** puts every card at its place.
+- **Sons**: drop the finished edit (*File › Export › Final Cut Pro XML*), add your sound folders or your Epidemic key. The **planche sonore** holds your sound effects (tiles: drag « Whoosh » and get a different take each time), ambiences and music; **Proposer ambiances et musiques** fills its *Pour le script* view from your instructions, never placed without you. **Analyser le montage** puts sounds on everything that moves: listen and adjust them in the board's **Sur le montage** tab (Space plays the voice with the sounds, ←/→ jumps from sound to sound, A/Z changes the take), then **Exporter pour Premiere (.xml)**.
 
-Re-run any step after re-editing: Autocut finds every sentence again wherever it ended up in your edit.
+Re-run any step after re-editing: FauxRaccord finds every sentence again wherever it ended up in your edit.
 
 ## Privacy
 
@@ -97,4 +98,4 @@ Your rushes and audio never leave your PC: transcription and syncing run locally
 
 ## License
 
-[MIT](LICENSE). Illustrations found by Autocut keep their own licences: check them before publishing (the contact sheet shows each one's rights and source, and the export writes the credits).
+[MIT](LICENSE). Illustrations found by FauxRaccord keep their own licences: check them before publishing (the contact sheet shows each one's rights and source, and the export writes the credits).

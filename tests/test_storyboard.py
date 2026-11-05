@@ -1,4 +1,4 @@
-from autocut.storyboard import FACE, _batches, _clean_beats
+from fauxraccord.storyboard import FACE, _batches, _clean_beats
 
 
 def beat(first, last, **kw):

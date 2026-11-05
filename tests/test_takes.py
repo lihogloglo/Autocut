@@ -4,11 +4,11 @@ from pathlib import Path
 
 import numpy as np
 
-from autocut.align import align
-from autocut.takes import ADLIB, CHATTER, FAILED, TAKE, resolve_takes, split_pieces
-from autocut.text import load_sentences
-from autocut.timeline import Options, build_clips
-from autocut.transcribe import Word
+from fauxraccord.align import align
+from fauxraccord.takes import ADLIB, CHATTER, FAILED, TAKE, resolve_takes, split_pieces
+from fauxraccord.text import load_sentences
+from fauxraccord.timeline import Options, build_clips
+from fauxraccord.transcribe import Word
 
 SCRIPT = """# Chapitre un
 

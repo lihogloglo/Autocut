@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 
-from autocut.sourcing.library import Library, key, selected_files
-from autocut.sourcing.model import Asset, Manifest
+from fauxraccord.sourcing.library import Library, key, selected_files
+from fauxraccord.sourcing.model import Asset, Manifest
 
 IMG = "a1b2c3d4e5f6"
 VID = "0f9e8d7c6b5a"
@@ -87,6 +87,6 @@ def test_placement_skips_what_was_dragged(tmp_path):
     files, _ = selected_files(out, skip_dragged=True)
     assert [a.id for a, _ in files] == [IMG]
 
-    from autocut.sourcing.bridge import PANEL_PLACED, ours
+    from fauxraccord.sourcing.bridge import PANEL_PLACED, ours
     (out / PANEL_PLACED).write_text(json.dumps([str(p.resolve()) for _, p in selected_files(out)[0]]), encoding="utf-8")
     assert ours(out, "sources") == [str(lib.find(lib.assets[IMG]).resolve())]   # never the dragged one

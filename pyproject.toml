@@ -1,5 +1,5 @@
 [project]
-name = "autocut"
+name = "fauxraccord"
 version = "0.2.0"
 description = "Derush long talking-head recordings against their script, for Premiere Pro"
 readme = "README.md"
@@ -25,6 +25,7 @@ dependencies = [
     "python-docx>=1.2.0",
     "pywebview>=6.2.1",
     "rapidfuzz>=3.14.6",
+    "rapidocr-onnxruntime>=1.4",
     "scipy>=1.11",
     "soundfile>=0.12",
     "soxr>=0.3",
@@ -33,13 +34,13 @@ dependencies = [
 ]
 
 [project.scripts]
-autocut = "autocut:main"
-autocut-sources = "autocut.sourcing:main"
-autocut-storyboard = "autocut.storyboard:main"
+fauxraccord = "fauxraccord:main"
+fauxraccord-sources = "fauxraccord.sourcing:main"
+fauxraccord-storyboard = "fauxraccord.storyboard:main"
 
 [project.gui-scripts]
-autocut-gui = "autocut.gui:main"
-autocut-sources-gui = "autocut.gui:main_sources"
+fauxraccord-gui = "fauxraccord.gui:main"
+fauxraccord-sources-gui = "fauxraccord.gui:main_sources"
 
 [tool.uv]
 # earshot (the built-in sound bank) renders with numpy + scipy only: its listening models stay out

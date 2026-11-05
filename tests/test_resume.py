@@ -3,11 +3,11 @@
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from autocut import _after
-from autocut.premiere_xml import PremiereSequence
-from autocut.timeline import Clip
-from autocut import transcribe
-from autocut.transcribe import SourceTranscript, Word, _merge, _subtract, transcribe_ranges
+from fauxraccord import _after
+from fauxraccord.premiere_xml import PremiereSequence
+from fauxraccord.timeline import Clip
+from fauxraccord import transcribe
+from fauxraccord.transcribe import SourceTranscript, Word, _merge, _subtract, transcribe_ranges
 
 FPS = 25
 

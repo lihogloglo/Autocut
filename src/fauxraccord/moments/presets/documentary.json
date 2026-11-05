@@ -1,0 +1,238 @@
+{
+ "name": "Documentaire",
+ "about": "Rushs de tournage et B-roll. Chaque type se règle avec ✓ / ✗ sur la planche.",
+ "types": [
+  {
+   "id": "interview",
+   "name": "Interview",
+   "color": "#3c8fe0",
+   "mode": "state",
+   "combine": "all",
+   "signals": [
+    {
+     "sound": [
+      "Speech"
+     ],
+     "track": "any",
+     "window": 5,
+     "min": 0.5
+    },
+    {
+     "words": [
+      "a person sitting and talking to the camera in an interview"
+     ],
+     "z": 2.0
+    }
+   ],
+   "before": 0,
+   "after": 0,
+   "gap": 8,
+   "min_len": 10
+  },
+  {
+   "id": "landscape",
+   "name": "Paysage",
+   "color": "#4fa36b",
+   "mode": "state",
+   "combine": "all",
+   "signals": [
+    {
+     "words": [
+      "a wide landscape shot of nature",
+      "a wide shot of a city skyline"
+     ],
+     "not": [
+      "a close-up of a person"
+     ],
+     "z": 2.5
+    }
+   ],
+   "before": 0,
+   "after": 0,
+   "gap": 3,
+   "min_len": 3
+  },
+  {
+   "id": "aerial",
+   "name": "Drone",
+   "color": "#2fb5b5",
+   "mode": "state",
+   "combine": "all",
+   "signals": [
+    {
+     "words": [
+      "an aerial drone shot looking down from high above"
+     ],
+     "z": 3.0
+    }
+   ],
+   "before": 0,
+   "after": 0,
+   "gap": 3,
+   "min_len": 3
+  },
+  {
+   "id": "people",
+   "name": "Gros plan",
+   "color": "#e08a3c",
+   "mode": "state",
+   "combine": "all",
+   "signals": [
+    {
+     "words": [
+      "a close-up of a person's face",
+      "a close-up of hands doing something"
+     ],
+     "z": 2.5
+    }
+   ],
+   "before": 0,
+   "after": 0,
+   "gap": 3,
+   "min_len": 2
+  },
+  {
+   "id": "animals",
+   "name": "Animaux",
+   "color": "#c9a227",
+   "mode": "state",
+   "combine": "any",
+   "signals": [
+    {
+     "words": [
+      "an animal in the wild",
+      "a bird",
+      "a dog or a cat"
+     ],
+     "z": 3.0
+    },
+    {
+     "sound": [
+      "Bird vocalization, bird call, bird song",
+      "Dog",
+      "Animal"
+     ],
+     "track": "any",
+     "window": 3,
+     "min": 0.4
+    }
+   ],
+   "before": 0,
+   "after": 0,
+   "gap": 3,
+   "min_len": 2
+  },
+  {
+   "id": "vehicles",
+   "name": "Véhicules",
+   "color": "#8a8a8a",
+   "mode": "state",
+   "combine": "any",
+   "signals": [
+    {
+     "words": [
+      "a car, a train or a boat",
+      "traffic on a road"
+     ],
+     "z": 3.0
+    },
+    {
+     "sound": [
+      "Vehicle",
+      "Car passing by",
+      "Train",
+      "Aircraft",
+      "Boat, Water vehicle"
+     ],
+     "track": "any",
+     "window": 3,
+     "min": 0.4
+    }
+   ],
+   "before": 0,
+   "after": 0,
+   "gap": 3,
+   "min_len": 2
+  },
+  {
+   "id": "text",
+   "name": "Panneaux et textes",
+   "color": "#b04ad0",
+   "mode": "state",
+   "combine": "all",
+   "signals": [
+    {
+     "words": [
+      "a sign with written text",
+      "a document or a page of text"
+     ],
+     "z": 3.0
+    }
+   ],
+   "before": 0,
+   "after": 0,
+   "gap": 2,
+   "min_len": 1
+  },
+  {
+   "id": "unusable",
+   "name": "Inutilisable",
+   "color": "#e05252",
+   "mode": "state",
+   "combine": "any",
+   "signals": [
+    {
+     "words": [
+      "a blurry out of focus photo",
+      "a very dark underexposed photo",
+      "a photo of the ground or the inside of a bag"
+     ],
+     "z": 3.5
+    }
+   ],
+   "before": 0,
+   "after": 0,
+   "gap": 2,
+   "min_len": 2
+  },
+  {
+   "id": "peaks",
+   "name": "Points forts",
+   "color": "#ff7043",
+   "mode": "state",
+   "combine": "all",
+   "signals": [
+    {
+     "intensity": "high",
+     "min": 0.85
+    }
+   ],
+   "before": 3,
+   "after": 3,
+   "gap": 8,
+   "min_len": 6,
+   "enabled": false,
+   "hint": "Les passages les plus intenses de chaque rush : action, voix, rythme. ✗ ce qui n'en est pas un."
+  },
+  {
+   "id": "calm",
+   "name": "Temps calme",
+   "color": "#9aa0a6",
+   "mode": "state",
+   "combine": "all",
+   "remove": true,
+   "signals": [
+    {
+     "intensity": "low",
+     "max": 0.2
+    }
+   ],
+   "before": 0,
+   "after": 0,
+   "gap": 5,
+   "min_len": 15,
+   "enabled": false,
+   "hint": "Les passages les plus calmes de chaque rush : à raccourcir."
+  }
+ ]
+}

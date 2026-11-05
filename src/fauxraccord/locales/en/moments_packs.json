@@ -1,0 +1,22 @@
+{
+ "Packs importés": "Imported packs",
+ "Partager…": "Share…",
+ "Importer…": "Import…",
+ "Enregistrer les types que vous avez appris dans un fichier, pour vos amis qui jouent au même jeu": "Save the kinds you taught in a file, for friends who play the same game",
+ "Ajouter les types d'un pack reçu (.fauxpack.json)": "Add the kinds of a pack you received (.fauxpack.json)",
+ "Pack de moments (*.fauxpack.json)": "Moments pack (*.fauxpack.json)",
+ "Rien à partager : apprenez d'abord un type de moment (exemple, ✓ / ✗ ou zone).": "Nothing to share yet: teach a kind of moment first (example, ✓ / ✗ or zone).",
+ "Écriture impossible : {error}": "Could not write the file: {error}",
+ "Pack enregistré : {name} ({n} types, {size} ko). Vos amis l'importent sur leurs propres rushs.": "Pack saved: {name} ({n} kinds, {size} kB). Friends import it on their own rushes.",
+ "Laissés de côté (rushs pas encore lus) : {names}.": "Left out (rushes not read yet): {names}.",
+ "Pack ajouté aux préréglages et choisi : déposez vos rushs.": "Pack added to the presets and chosen: drop your rushes.",
+ "{n} types ajoutés depuis « {name} »": "{n} kinds added from “{name}”",
+ "(renommés : {names})": "(renamed: {names})",
+ "Lancez la recherche.": "Run the search.",
+ "Ce fichier est trop gros pour un pack.": "This file is too big for a pack.",
+ "Ce fichier n'est pas un pack de moments.": "This file is not a moments pack.",
+ "Ce pack vient d'une version plus récente de FauxRaccord : mettez-la à jour.": "This pack comes from a newer FauxRaccord: update it.",
+ "Ce pack ne contient aucun type de moment utilisable.": "This pack holds no kind of moment that can be used.",
+ "« {name} » est déjà là : rien à ajouter.": "“{name}” is already here: nothing to add.",
+ "1 type ajouté depuis « {name} »": "1 kind added from “{name}”"
+}

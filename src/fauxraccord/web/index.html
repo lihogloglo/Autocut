@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FauxRaccord</title>
+<link rel="icon" href="fauxraccord.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand">
+      <img class="logo" src="fauxraccord.png" alt="">
+      <span>FauxRaccord</span>
+    </div>
+    <div class="project" id="project" data-zone="project">
+      <button class="proj-btn" id="proj-btn" aria-haspopup="menu" aria-expanded="false">
+        <span class="proj-ico"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+        <span class="txt"><b id="proj-name" data-noi18n></b><small id="proj-where" data-noi18n></small></span>
+        <svg class="chev" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg>
+      </button>
+      <div class="proj-menu" id="proj-menu" role="menu" hidden></div>
+    </div>
+    <nav class="steps" id="steps">
+      <button class="step" data-step="sync"><span class="num">1</span><span class="txt"><b>Synchro</b><small></small></span></button>
+      <button class="step" data-step="derush"><span class="num">2</span><span class="txt"><b>Derush</b><small></small></span></button>
+      <button class="step" data-step="sources"><span class="num">3</span><span class="txt"><b>Illustrations</b><small></small></span></button>
+      <button class="step" data-step="storyboard"><span class="num">4</span><span class="txt"><b>Storyboard</b><small></small></span></button>
+      <button class="step" data-step="sfx"><span class="num">5</span><span class="txt"><b>Sons</b><small></small></span></button>
+    </nav>
+    <nav class="steps tools-nav">
+      <span class="nav-h">Outils</span>
+      <button class="step" data-step="beat"><span class="num gear">♪</span><span class="txt"><b>Au rythme</b><small></small></span></button>
+      <button class="step" data-step="moments"><span class="num gear">◆</span><span class="txt"><b>Moments</b><small></small></span></button>
+    </nav>
+    <nav class="steps setup-nav">
+      <button class="step" data-step="ai"><span class="num gear">✦</span><span class="txt"><b>IA</b><small></small></span></button>
+      <button class="step" data-step="setup"><span class="num gear">⚙</span><span class="txt"><b>Installation</b><small>vérification…</small></span></button>
+      <label class="ui-lang" title="Langue de l'interface"><span aria-hidden="true">🌐</span>
+        <select id="ui-lang" aria-label="Langue de l'interface" data-noi18n></select></label>
+    </nav>
+  </aside>
+
+  <main id="main">
+    <!-- 1. Synchro -->
+    <section class="page" id="page-sync">
+      <header>
+        <h1>Synchro</h1>
+        <p class="lead">Cale les vidéos et le son externe (.wav) sur l'audio, comme PluralEyes. Donne une séquence « 1 sync » à importer dans Premiere.</p>
+      </header>
+      <div class="drop" data-zone="sync">
+        <div class="drop-icon"><svg viewBox="0 0 24 24"><path d="M12 3v12m0-12 4.5 4.5M12 3 7.5 7.5M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></svg></div>
+        <div class="drop-text"><b>Glissez vos rushs ici</b><span>vidéos, sons .wav, ou le dossier qui les contient</span></div>
+        <div class="drop-btns"><button class="btn" data-pick="sync">Fichiers…</button><button class="btn" data-pick="sync" data-folder="1">Dossier…</button></div>
+      </div>
+      <ul class="files" id="rushes"></ul>
+      <div class="row-opts">
+        <label class="check"><input type="checkbox" id="chain"><span>Enchaîner avec le derush quand le script est là</span></label>
+      </div>
+      <div class="actions">
+        <button class="btn primary big" id="go-sync">Synchroniser</button>
+      </div>
+      <div class="result" id="res-sync"></div>
+    </section>
+
+    <!-- 2. Derush -->
+    <section class="page" id="page-derush">
+      <header>
+        <h1>Derush</h1>
+        <p class="lead">Garde les prises du script, enlève silences et ratés. Marche sur une séquence brute ou déjà derushée en partie : vos coupes sont gardées.</p>
+      </header>
+      <div class="drop" data-zone="derush" id="drop-derush">
+        <div class="drop-icon"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h7m9-3v6m0 0-3-3m3 3 3-3"/></svg></div>
+        <div class="drop-text"><b>Glissez une séquence Premiere (.xml)</b><span>Premiere : Fichier › Exporter › Final Cut Pro XML — ou le résultat de la synchro</span></div>
+        <div class="drop-btns"><button class="btn" data-pick="derush">Choisir…</button></div>
+      </div>
+      <div class="filecard" id="xml-card" data-zone="derush"></div>
+      <div class="script-slot" id="derush-script" data-zone="script"></div>
+      <div class="scan" id="scan"></div>
+      <details class="settings">
+        <summary>Réglages</summary>
+        <div class="grid">
+          <label>Langue de la vidéo
+            <select data-opt="lang">
+              <option value="auto">Celle du script (auto)</option>
+              <option value="fr">Français</option>
+              <option value="en">English</option>
+            </select>
+          </label>
+          <label>Transcription
+            <select data-opt="model">
+              <option value="large-v3">Précise (large-v3)</option>
+              <option value="large-v3-turbo">Rapide (large-v3-turbo)</option>
+            </select>
+          </label>
+          <label>Pause max. gardée (s)<input type="number" step="0.05" min="0" max="3" data-opt="max_pause"></label>
+          <label>Marge avant (s)<input type="number" step="0.01" min="0" max="2" data-opt="pad_in"></label>
+          <label>Marge après (s)<input type="number" step="0.01" min="0" max="2" data-opt="pad_out"></label>
+        </div>
+      </details>
+      <div class="actions">
+        <button class="btn primary big" id="go-derush">Derusher</button>
+      </div>
+      <div class="result" id="res-derush"></div>
+    </section>
+
+    <!-- 3. Illustrations · 4. Storyboard · 5. Sons: the same three blocks on each page.
+         Entrées (what the step needs, as drop zones) · Consignes pour l'IA (the prompt and what starts the AI) ·
+         Résultat (the planche, to drag into Premiere by hand, and the automatic placement beside it). -->
+    <section class="page" id="page-sources">
+      <header>
+        <h1>Illustrations</h1>
+        <p class="lead">Des images pour chaque phrase du script.</p>
+      </header>
+      <section class="zone">
+        <h2 class="zone-h">Entrées</h2>
+        <div class="inputs"><div id="in-sources-script"></div><div id="in-sources-montage"></div></div>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Consignes pour l'IA <span class="r ai-line"></span></h2>
+        <div class="brief" data-zone="sources">
+          <label class="lbl">Ce qu'il faut chercher
+            <textarea data-opt="brief" rows="2" placeholder="Ex. : documents d'époque (affiches, unes de journaux, gravures) ; pas de photos modernes ; cartes anciennes dès qu'on parle d'un territoire."></textarea>
+          </label>
+          <div class="brow"><span class="k">Chercher aussi dans</span>
+            <span class="switches">
+              <button class="sw" data-toggle="shots"><i></i>Captures des pages</button>
+              <button class="sw" data-toggle="search"><i></i>Archives et musées</button>
+              <button class="sw" data-toggle="videos"><i></i>YouTube</button>
+              <button class="sw" data-toggle="web"><i></i>Web <small>droits inconnus</small></button>
+            </span>
+          </div>
+          <div class="brow"><span class="k">Tri</span><button class="sw" data-toggle="judge"><i></i>L'IA écarte les images hors sujet</button></div>
+          <div class="acts"><button class="btn" data-run="collect" id="go-collect">Collecter</button><span class="note" id="collect-note"></span></div>
+        </div>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Résultat</h2>
+        <div class="results">
+          <div class="rcard" id="res-src-board"></div>
+          <div class="rcard" id="res-src-auto"></div>
+        </div>
+        <div class="result" id="res-place"></div>
+      </section>
+      <details class="settings">
+        <summary>Réglages avancés</summary>
+        <div class="grid">
+          <label>Hauteur des captures
+            <select data-opt="shot_height" data-num="1">
+              <option value="4000">Haute (3840 × 8000)</option>
+              <option value="6000">Très haute (3840 × 12000)</option>
+              <option value="8000">Extrême (3840 × 16000)</option>
+            </select>
+          </label>
+          <label>Extrait vidéo (s)<input type="number" min="5" max="300" step="5" data-opt="segment"></label>
+          <label>Vidéo entière si moins de (min)<input type="number" min="0" max="120" step="1" data-opt="full_max"></label>
+        </div>
+      </details>
+    </section>
+
+    <section class="page" id="page-storyboard">
+      <header>
+        <h1>Storyboard</h1>
+        <p class="lead">Les plans à créer pour illustrer le script, dans votre style.</p>
+      </header>
+      <section class="zone">
+        <h2 class="zone-h">Entrées</h2>
+        <div class="inputs"><div id="in-storyboard-script"></div><div id="in-storyboard-montage"></div></div>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Consignes pour l'IA <span class="r ai-line"></span></h2>
+        <div class="brief" data-zone="storyboard" id="sb-brief">
+          <label class="lbl">Le style voulu
+            <textarea data-opt="sb_style" rows="3" placeholder="Ex. : 3D lowpoly façon Fern et Lemmino, motion design épuré pour les chiffres et les cartes. Palette sombre, accents ambre."></textarea>
+          </label>
+          <div class="brow"><span class="k">Références</span><span class="refs" id="sb-refs"></span></div>
+          <div class="brow"><span class="k">Durée par plan</span><input class="numin" type="number" min="2" max="20" step="1" data-opt="sb_pace" aria-label="Durée visée par plan (s)"><span class="muted">s, en moyenne</span></div>
+          <div class="acts"><button class="btn" data-run="storyboard" id="go-sb">Créer les plans</button><span class="note" id="sb-note"></span></div>
+        </div>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Résultat</h2>
+        <div class="results">
+          <div class="rcard" id="res-sb-board"></div>
+          <div class="rcard" id="res-sb-auto"></div>
+        </div>
+      </section>
+    </section>
+
+    <section class="page" id="page-sfx">
+      <header>
+        <h1>Sons</h1>
+        <p class="lead">Bruitages, ambiances et musiques pour votre montage.</p>
+      </header>
+      <section class="zone">
+        <h2 class="zone-h">Entrées</h2>
+        <div class="inputs"><div id="in-sfx-montage"></div><div id="in-sfx-script"></div></div>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Sources des sons</h2>
+        <div class="brief srcs" id="sfx-srcs" data-zone="sfx-src"></div>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Consignes pour l'IA <span class="r ai-line"></span></h2>
+        <div class="brief">
+          <label class="lbl">Ambiances et musiques
+            <textarea data-opt="sfx_brief" rows="2" placeholder="Ex. : synthés analogiques discrets, façon thriller documentaire ; jamais d'orchestre épique. Ambiances fidèles à l'époque."></textarea>
+          </label>
+          <div class="acts"><button class="btn" data-run="sfx_suggest" id="go-suggest">Proposer ambiances et musiques</button><span class="note" id="suggest-note"></span></div>
+        </div>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Résultat</h2>
+        <div class="results">
+          <div class="rcard" id="res-sfx-board"></div>
+          <div class="rcard" id="res-sfx-auto"></div>
+        </div>
+      </section>
+    </section>
+
+    <!-- Outils › Au rythme: not a step of the video's pipeline, a tool usable on any project.
+         Entrées · Rythme (where the cuts go) · Planche (the music, its beats, the cuts and the shots, all editable) · Résultat -->
+    <section class="page wide" id="page-beat">
+      <header>
+        <h1>Au rythme</h1>
+        <p class="lead">Vos rushs coupés sur les temps d'une musique.</p>
+      </header>
+      <section class="zone">
+        <h2 class="zone-h">Entrées</h2>
+        <div class="inputs"><div id="in-beat-music"></div><div id="in-beat-rushes"></div></div>
+        <div id="beat-srcs" class="beat-srcs" data-zone="beat-rushes"></div>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Rythme <span class="r" id="beat-bpm"></span></h2>
+        <div class="brief" id="beat-rhythm"></div>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Planche</h2>
+        <div class="beatboard" id="beat-board"></div>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Résultat</h2>
+        <div class="results even">
+          <div class="rcard" id="res-beat-hand"></div>
+          <div class="rcard" id="res-beat-auto"></div>
+        </div>
+      </section>
+    </section>
+
+    <!-- Outils › Moments: long rushes (10 h of gameplay, B-roll) sorted by what happens in them.
+         Entrées · Ce qu'il faut trouver (preset, kinds, search) · Planche (video, timeline, cards ✓ / ✗) · Résultat -->
+    <section class="page wide" id="page-moments">
+      <header>
+        <h1>Moments</h1>
+        <p class="lead">Les longs rushs triés par ce qui s'y passe.</p>
+      </header>
+      <section class="zone">
+        <h2 class="zone-h">Entrées</h2>
+        <div class="inputs one"><div id="in-moments-rushes"></div></div>
+        <ul class="files" id="mo-files"></ul>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Ce qu'il faut trouver <span class="r" id="mo-preset-line"></span></h2>
+        <div class="brief" id="mo-kinds"></div>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Planche <span class="r" id="mo-count"></span></h2>
+        <div class="moboard" id="mo-board"></div>
+      </section>
+      <section class="zone">
+        <h2 class="zone-h">Résultat</h2>
+        <div class="results even">
+          <div class="rcard" id="res-mo-hand"></div>
+          <div class="rcard" id="res-mo-auto"></div>
+        </div>
+      </section>
+    </section>
+
+    <!-- IA -->
+    <section class="page" id="page-ai">
+      <header>
+        <h1>IA</h1>
+        <p class="lead">L'IA qui lit le script pour toutes les étapes (recherche d'illustrations, tri des images, storyboard). Une clé API, ou votre abonnement : FauxRaccord passe alors par l'application officielle, connectée à votre compte.</p>
+      </header>
+      <div class="ai-top">
+        <label>Moteur
+          <select data-opt="llm" id="ai-engine"></select>
+        </label>
+        <label>Qualité
+          <select data-opt="quality">
+            <option value="best">Meilleure (plus lent)</option>
+            <option value="fast">Rapide</option>
+          </select>
+        </label>
+      </div>
+      <ul class="checks" id="ai-list"><li class="muted">Vérification…</li></ul>
+      <div class="keyfield" id="gemini-keybox">
+        <label for="gemini-key">Clé API Gemini</label>
+        <div class="keyrow">
+          <input type="password" id="gemini-key" autocomplete="off" spellcheck="false" placeholder="Collez la clé (AIza…)">
+          <button class="btn" id="save-gemini">Enregistrer</button>
+        </div>
+        <small class="muted" id="gemini-status"></small>
+      </div>
+      <div class="actions"><button class="btn" id="ai-recheck">Revérifier</button></div>
+    </section>
+
+    <!-- Installation -->
+    <section class="page" id="page-setup">
+      <header>
+        <h1>Installation</h1>
+        <p class="lead">Ce dont FauxRaccord a besoin sur cet ordinateur. Ce qui manque s'installe d'ici.</p>
+      </header>
+      <ul class="checks" id="checks"><li class="muted">Vérification…</li></ul>
+      <div class="actions"><button class="btn" id="recheck">Revérifier</button></div>
+    </section>
+
+    <!-- running job, shown under the page it belongs to -->
+    <div class="job" id="job" hidden>
+      <div class="job-head">
+        <div class="job-title"><span class="spinner"></span><b id="job-title"></b><span id="job-label" class="muted"></span></div>
+        <button class="btn danger" id="stop">Arrêter</button>
+      </div>
+      <div class="bar"><div id="bar-fill"></div></div>
+      <div class="job-meta"><span id="job-pct"></span><span id="job-eta" class="muted"></span></div>
+      <div class="job-msg" id="job-msg"></div>
+      <details class="log-wrap" id="log-wrap">
+        <summary>Détails <button class="link" id="copy-log">copier</button></summary>
+        <pre id="log"></pre>
+      </details>
+    </div>
+  </main>
+</div>
+<div class="veil" id="veil"><div>Déposez sur l'étape</div></div>
+<div class="toasts" id="toasts"></div>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+<script src="beat.js"></script>
+<script src="moments.js"></script>
+</body>
+</html>

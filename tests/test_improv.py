@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from autocut.align import align
-from autocut.takes import resolve_takes, split_pieces
-from autocut.text import load_sentences
-from autocut.transcribe import Word
+from fauxraccord.align import align
+from fauxraccord.takes import resolve_takes, split_pieces
+from fauxraccord.text import load_sentences
+from fauxraccord.transcribe import Word
 
 SCRIPT = ("Le traité de Versailles impose à l'Allemagne des réparations très lourdes, "
           "que beaucoup jugent humiliantes.\n\nPersonne ne mesure alors les conséquences de ce texte.")

@@ -1,7 +1,7 @@
 """Sourcing parser: links stay attached to their sentence, sentence cut identical to part 1."""
 
-from autocut.sourcing.script import parse_script
-from autocut.text import load_sentences
+from fauxraccord.sourcing.script import parse_script
+from fauxraccord.text import load_sentences
 
 SCRIPT = """---
 title: Essai

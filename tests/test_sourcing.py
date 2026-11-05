@@ -4,13 +4,13 @@ import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path
 
-from autocut.media import MediaInfo
-from autocut.sourcing.collect import _bigger, _start_param, _vtt_cues
-from autocut.sourcing.export import broll_sequence, sentence_times
-from autocut.sourcing.model import CHECK, FREE, PROTECTED, rights_for
-from autocut.sourcing.script import parse_script
-from autocut.sourcing.search import heuristic_queries
-from autocut.xmeml import write_document
+from fauxraccord.media import MediaInfo
+from fauxraccord.sourcing.collect import _bigger, _start_param, _vtt_cues
+from fauxraccord.sourcing.export import broll_sequence, sentence_times
+from fauxraccord.sourcing.model import CHECK, FREE, PROTECTED, rights_for
+from fauxraccord.sourcing.script import parse_script
+from fauxraccord.sourcing.search import heuristic_queries
+from fauxraccord.xmeml import write_document
 
 
 def test_rights():
@@ -88,9 +88,9 @@ def _seq(name, clips, markers=""):
 
 
 def test_place_sentences_follow_the_edit(tmp_path):
-    from autocut.sourcing.place import place_sentences, read_sequence, standalone_copy
+    from fauxraccord.sourcing.place import place_sentences, read_sequence, standalone_copy
     # derush: S001 = rush 10-14 s, S002 = rush 30-33 s (frames at 25 fps); a sync sequence defines the file first
-    derush = tmp_path / "x.autocut.xml"
+    derush = tmp_path / "x.fauxraccord.xml"
     derush.write_text("<xmeml version='5'><project><children>"
                       + _seq("x 1 sync", [_clip("a", "rec", 0, 2500, 0)])
                       + _seq("x 3 derush", [_clip("b", "rec", 0, 100, 250, False), _clip("c", "rec", 100, 175, 750, False)],
@@ -114,7 +114,7 @@ def test_place_sentences_follow_the_edit(tmp_path):
 
 
 def test_broll_on_top_of_the_edit(tmp_path):
-    from autocut.sourcing.place import read_sequence, standalone_copy
+    from fauxraccord.sourcing.place import read_sequence, standalone_copy
     edit = tmp_path / "edit.xml"
     edit.write_text("<xmeml version='5'>" + _seq("Montage", [_clip("e1", "rec", 0, 250, 0)]) + "</xmeml>",
                     encoding="utf-8")
@@ -143,10 +143,10 @@ def test_broll_on_top_of_the_edit(tmp_path):
 
 def test_panel_sequence_and_lanes(tmp_path):
     """The Premiere panel sends the open sequence as JSON: same placement as the exported XML."""
-    from autocut.sourcing.bridge import exported_files
-    from autocut.sourcing.export import lanes
-    from autocut.sourcing.place import _key, place_sentences, read_sequence, seq_from_panel
-    derush = tmp_path / "x.autocut.xml"
+    from fauxraccord.sourcing.bridge import exported_files
+    from fauxraccord.sourcing.export import lanes
+    from fauxraccord.sourcing.place import _key, place_sentences, read_sequence, seq_from_panel
+    derush = tmp_path / "x.fauxraccord.xml"
     derush.write_text("<xmeml version='5'><project><children>"
                       + _seq("x 3 derush", [_clip("b", "rec", 0, 100, 250), _clip("c", "rec", 100, 175, 750, False)],
                              "<marker><name>S001 T1/1 · un</name><in>0</in><out>100</out></marker>"
@@ -178,7 +178,7 @@ def test_panel_sequence_and_lanes(tmp_path):
 # --- dates ---------------------------------------------------------------------------------------
 
 def test_norm_date():
-    from autocut.sourcing.model import norm_date
+    from fauxraccord.sourcing.model import norm_date
     assert norm_date("2019:03:16 14:02:11") == "2019-03-16"                 # EXIF
     assert norm_date("20190316") == "2019-03-16"                            # YouTube
     assert norm_date('<time class="dtstart" datetime="2019-03-16">16 March 2019</time>') == "2019-03-16"
@@ -192,7 +192,7 @@ def test_norm_date():
 
 
 def test_period_range():
-    from autocut.sourcing.model import period_range
+    from fauxraccord.sourcing.model import period_range
     assert period_range("2026") == (2026, 2026)
     assert period_range("mars 2026") == (2026, 2026)
     assert period_range("1789-1794") == (1789, 1794)
@@ -203,7 +203,7 @@ def test_period_range():
 
 
 def test_date_note():
-    from autocut.sourcing.model import Asset, date_note
+    from fauxraccord.sourcing.model import Asset, date_note
     photo = Asset(id="x", kind="image", via="commons", origin="recherche", sentence=0, paragraph=0, date="2019-03-16")
     assert date_note(photo, "2026") == "image de 2019, le passage parle de 2026"
     assert date_note(photo, "2018-2019") == ""
@@ -215,8 +215,8 @@ def test_date_note():
 
 
 def test_heuristic_period(tmp_path):
-    from autocut.sourcing.script import parse_script
-    from autocut.sourcing.search import heuristic_queries
+    from fauxraccord.sourcing.script import parse_script
+    from fauxraccord.sourcing.search import heuristic_queries
     md = tmp_path / "s.md"
     md.write_text("# A\n\nEn 2019, la grève de la RATP paralyse Paris.\n\nUne idée sans date.\n", encoding="utf-8")
     qs = heuristic_queries(parse_script(md))

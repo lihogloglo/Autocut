@@ -2,4 +2,4 @@
 
 import os
 
-os.environ["AUTOCUT_LANG"] = "fr"
+os.environ["FAUXRACCORD_LANG"] = "fr"

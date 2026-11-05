@@ -1,0 +1,23 @@
+{
+ "Écrivez ce qui est dit.": "Write what is said.",
+ "{name} : nouveau type de moment, recherche relancée.": "{name}: new kind of moment, searching again.",
+ "Ce qui est dit est lu : {n} mots.": "What is said has been read: {n} words.",
+ "Lecture de ce qui est dit": "Reading what is said",
+ "Lisez d'abord ce qui est dit (bouton au-dessus de la frise).": "Read what is said first (button above the timeline).",
+ "Trouvé dans ce qui est dit": "Found in what is said",
+ "dit « {w} »": "said “{w}”",
+ "Dit": "Said",
+ "Où « {q} » est dit": "Where “{q}” is said",
+ "≈ {d}, une seule fois, sur cet ordinateur": "≈ {d}, once, on this computer",
+ "une seule fois, sur cet ordinateur": "once, on this computer",
+ "Ce qui est dit": "What is said",
+ "Ex. : je suis mort, on raid": "E.g.: I'm dead, we raid",
+ "Chaque fois que ces mots sont dits devient un moment": "Every time these words are said becomes a moment",
+ "En faire un type de moment": "Make it a kind of moment",
+ "Transcrit la voix des rushs avec Whisper ({model}).": "Transcribes the voices in the rushes with Whisper ({model}).",
+ "Lire ce qui est dit": "Read what is said",
+ "1 fois": "once",
+ "{n} fois": "{n} times",
+ "Jamais dit dans ce rush.": "Never said in this rush.",
+ "{n} dans les autres rushs": "{n} in the other rushes"
+}

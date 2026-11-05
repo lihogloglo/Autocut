@@ -1,4 +1,4 @@
-# Autocut — technical details
+# FauxRaccord — technical details
 
 Sync camera and recorder files by sound, derush a long talking-head recording
 against its script, and get one Premiere Pro XML back with three sequences. Then
@@ -11,9 +11,9 @@ there is no NVIDIA card — much slower).
 | Step | In | Out | Alone? |
 |---|---|---|---|
 | Sync | rushes (camera + .wav) | `.sync.xml`: `1 sync` sequence | yes: no script |
-| Derush | sync result, or any sequence exported from Premiere (raw or half derushed) + script | `.autocut.xml`: `2 triage`, `3 derush` | yes: give the Premiere XML |
+| Derush | sync result, or any sequence exported from Premiere (raw or half derushed) + script | `.fauxraccord.xml`: `2 triage`, `3 derush` | yes: give the Premiere XML |
 | Illustrations: collect + pick | script (.md with links) | contact sheet, files per section, credits | yes: no derush needed |
-| Illustrations: place | picks + `.autocut.xml` and/or your current edit (FCP7 XML) | B-roll at the sentence timecodes | re-run any time after re-editing |
+| Illustrations: place | picks + `.fauxraccord.xml` and/or your current edit (FCP7 XML) | B-roll at the sentence timecodes | re-run any time after re-editing |
 | Illustrations: place, from Premiere | picks + the sequence open in Premiere ([panel](#premiere-panel)) | B-roll straight into the sequence | one click after each re-edit, no XML |
 | Storyboard | script + a style in words (+ reference images) | a beat-by-beat storyboard: what to make, prompts, scenes; cards placed on the edit | yes: durations estimated without a derush |
 | Sounds | a finished edit (FCP7 XML) + sound sources | whooshes, clicks, pops, typing on what moves on screen, on their own tracks | yes: any edit exported from Premiere |
@@ -24,13 +24,13 @@ every take, part 2 files every illustration under it.
 
 ## Window (for everyone)
 
-Install with **`Autocut-Setup.exe`** (Releases page; `installer/Autocut.iss`, built by
+Install with **`FauxRaccord-Setup.exe`** (Releases page; `installer/FauxRaccord.iss`, built by
 `.github/workflows/release.yml` on a `v*` tag matching `pyproject.toml`): per user, no admin, into
-`%LOCALAPPDATA%\Programs\Autocut`; it runs `uv sync --frozen` (uv bundled, its own Python 3.12) with a progress page,
+`%LOCALAPPDATA%\Programs\FauxRaccord`; it runs `uv sync --frozen` (uv bundled, its own Python 3.12) with a progress page,
 adds Start menu and desktop shortcuts carrying the window's AppUserModelID (pinning to the taskbar works) and an
 uninstaller. Updates come from the Installation page (the window holds a mutex the installer waits on). From a git
-checkout, double-click **`Autocut.bat`** instead: it installs uv and the Python packages, puts an
-**Autocut** shortcut (🪓) on the desktop and opens the window; run it again after `git pull`. The rest — ffmpeg, the transcription model (~3 GB),
+checkout, double-click **`FauxRaccord.bat`** instead: it installs uv and the Python packages, puts an
+**FauxRaccord** shortcut (🪓) on the desktop and opens the window; run it again after `git pull`. The rest — ffmpeg, the transcription model (~3 GB),
 a browser for page captures, the Premiere panel — is checked and installed from the window's
 **Installation** page (bottom of the left column; it turns orange when something required is
 missing). The **IA** page (just above it) picks the AI engine every step uses — see [AI engines](#ai-engines).
@@ -41,8 +41,8 @@ and derush XML too, wherever the rushes are). Click it to switch to a recent pro
 **open a folder**; drop a folder on it to open that one. Each project remembers its own files, so
 nothing from one video leaks into another. A folder opened for the first time is read for what
 is already in it, so you can start at any step: the script (`.md` first; Premiere's
-`FCP Translation Results` and Autocut's reports are not scripts), the rushes, the latest
-`.sync.xml` (→ Derush), the latest `.autocut.xml` (→ Illustrations and Storyboard timings), and a
+`FCP Translation Results` and FauxRaccord's reports are not scripts), the rushes, the latest
+`.sync.xml` (→ Derush), the latest `.fauxraccord.xml` (→ Illustrations and Storyboard timings), and a
 sequence you exported from Premiere (→ Derush input, and the placement target when it is newer
 than the derush). Dropping a script from another folder opens that folder's project; files dropped
 before any script follow it there.
@@ -73,9 +73,9 @@ To give it to someone: send them the repository link (or this folder without `.v
 ## Command line
 
 ```
-uv run autocut "D:\Rushes\Episode 12" "D:\Scripts\episode 12.docx"
-uv run autocut C0001.MP4 C0002.MP4 ZOOM0001.WAV "episode 12.md"
-uv run autocut "D:\Rushes\Episode 12"            # sync only
+uv run fauxraccord "D:\Rushes\Episode 12" "D:\Scripts\episode 12.docx"
+uv run fauxraccord C0001.MP4 C0002.MP4 ZOOM0001.WAV "episode 12.md"
+uv run fauxraccord "D:\Rushes\Episode 12"            # sync only
 ```
 
 Inputs can come in any order: the script is recognised by its extension
@@ -87,7 +87,7 @@ If you already synced (or partly cut) in Premiere, **File → Export → Final C
 Pro XML** and give that instead of the rushes:
 
 ```
-uv run autocut "D:\Exports\Episode 12.xml" "D:\Scripts\episode 12.docx"
+uv run fauxraccord "D:\Exports\Episode 12.xml" "D:\Scripts\episode 12.docx"
 ```
 
 The .wav track is transcribed as it plays in the sequence; the output cuts
@@ -107,12 +107,12 @@ Written next to the sources (`-o` for another folder):
 | File | What |
 |---|---|
 | `Episode 12.sync.xml` | Sync only (no script): the `1 sync` sequence. |
-| `Episode 12.autocut.xml` | **File → Import** in Premiere: a bin with three sequences, below. |
-| `Episode 12.autocut.txt` | Sync report, then per script sentence: how many takes, where, how many failed, and which sentences were never recorded. |
+| `Episode 12.fauxraccord.xml` | **File → Import** in Premiere: a bin with three sequences, below. |
+| `Episode 12.fauxraccord.txt` | Sync report, then per script sentence: how many takes, where, how many failed, and which sentences were never recorded. |
 | `Episode 12.sync.json` | Sync cache: re-runs skip the sync. |
 
 Transcripts are cached per rush file (by name and size, so moving the rushes keeps them) in
-`%LOCALAPPDATA%\autocut\transcripts`, with the source ranges already heard: any sequence built
+`%LOCALAPPDATA%\fauxraccord\transcripts`, with the source ranges already heard: any sequence built
 from the same rushes reuses them and only never-heard parts get transcribed.
 
 | Sequence | What |
@@ -175,13 +175,16 @@ Script: `.txt`, `.md` or `.docx`. Headings, links, URLs and `[1]` citations are 
 
 ## B-roll sourcing (part 2)
 
-On the **Illustrations** page everything starts from the script: set it, press **1. Collecter**,
-then **2. Choisir** (opens the contact sheet), click the thumbnails to keep, and download
-them: ⬇ under a card, or **Télécharger la sélection** for all the ticked ones (in the background,
-with progress on each card). Or drag a card straight onto the Premiere timeline. **3. Placer**
-writes the XML with each picture at its sentence; it needs one sequence (.xml): the derush result
-by default; drop your current edit instead after re-editing, and the same picks go onto it.
-Whatever was not downloaded yet is downloaded then; nothing is ever downloaded twice.
+The **Illustrations** page, like Storyboard and Sons, has three blocks: **Entrées** (the script and the
+project's edit — one edit for every step: the derush result by default, your current edit once you drop it),
+**Consignes pour l'IA** (the search brief, the sources, **Collecter**) and **Résultat**. Résultat shows the
+planche (with a bar of the script's sentences: in Premiere, chosen, without a picture) and **Automatique**.
+On the planche, drag a card straight onto the Premiere timeline, or mark it **✓ Choisie** and download it
+(⬇ under a card, or **Télécharger les choisies**, in the background with progress on each card).
+**Placer dans Premiere** downloads what is needed, then the Premiere panel places it (below); **ou exporter le
+XML** writes the same placement as a file. Both take the chosen pictures and, with *Compléter avec le choix de
+l'IA* (on by default), the best-scored still picture for each sentence nothing was chosen for (videos and
+protected items are left to you: `library.auto_picks`). Nothing is ever downloaded twice.
 
 For every `[text](url)` in the script:
 
@@ -218,11 +221,11 @@ or excerpt), **à vérifier** (unknown, NC/ND), **protégé** (agency or stock s
 Files (`<script> - sources\médias`): one folder per type (`Vidéos`, `Images`,
 `Captures d'écran`, `Pages PDF`), files named after their sentence and ending with the item's id
 (and the excerpt, for a video: `S014 youtube - Titre [3f2a9c1e5b7d 80-110].mp4`). The ⬇ button,
-« Télécharger la sélection », a drag into Premiere and **Placer** all use the same file, so an item
+« Télécharger les choisies », a drag into Premiere and the placement all use the same file, so an item
 is downloaded once; a hover only fetches into the cache. Files from older versions (`glissés\`,
 `export\`) are reused where they are. `credits.txt` (ready for the video description) and
 `credits.csv` list everything in the folder and are updated with every download.
-**Placer** writes `<title> B-roll.xml` next to `médias`, with two sequences:
+**Exporter le XML** writes `<title> B-roll.xml` next to `médias`, with two sequences:
 
 | Sequence | What |
 |---|---|
@@ -230,7 +233,7 @@ is downloaded once; a hover only fetches into the cache. Files from older versio
 | `<sequence> + B-roll` | a copy of `3 derush` (or of your edit) with the illustrations on the tracks above: open it and keep editing. |
 
 Timings: each picture goes where its sentence is spoken in the sequence you give. In the
-derush `.autocut.xml` the `Sxxx` markers say it directly. In your **current edit** (Premiere:
+derush `.fauxraccord.xml` the `Sxxx` markers say it directly. In your **current edit** (Premiere:
 File → Export → Final Cut Pro XML) each sentence is found again wherever it is now — re-cut,
 reordered, another take kept — by matching the rush time under the derush markers; and when
 there is no derush at all (a sequence cut by hand), by listening to it: the voice is
@@ -239,18 +242,18 @@ the edit are reported; their files are still downloaded. Without any XML, the il
 one after the other.
 
 ```
-uv run autocut-sources collect "episode 12.md" [--no-shots] [--no-search] [--no-web] [--llm auto|gemini|claude-code|codex|antigravity|claude|ollama|off] [--quality best|fast] [--no-judge] [--brief "…"] [--shot-height 4000]
-uv run autocut-sources sheet "episode 12 - sources"
-uv run autocut-sources export "episode 12 - sources" [--derush …] [--edit "montage.xml" [--edit-sequence name]]
+uv run fauxraccord-sources collect "episode 12.md" [--no-shots] [--no-search] [--no-web] [--llm auto|gemini|claude-code|codex|antigravity|claude|ollama|off] [--quality best|fast] [--no-judge] [--brief "…"] [--shot-height 4000]
+uv run fauxraccord-sources sheet "episode 12 - sources"
+uv run fauxraccord-sources export "episode 12 - sources" [--derush …] [--edit "montage.xml" [--edit-sequence name]]
 ```
 
 Everything is cached in the output folder: re-running is fast and keeps the selection.
 Screenshots use the Edge installed with Windows. The similarity model (~220 MB) and the
 image model (~600 MB) are downloaded on first use. Recommended: a Gemini key (window, or
-`GEMINI_API_KEY`; saved in `%APPDATA%\autocut\keys.json`; `AUTOCUT_GEMINI_MODEL` to change the
-model, default `gemini-3.8-flash`) or `ANTHROPIC_API_KEY` for Claude (`AUTOCUT_CLAUDE_MODEL`).
+`GEMINI_API_KEY`; saved in `%APPDATA%\fauxraccord\keys.json`; `FAUXRACCORD_GEMINI_MODEL` to change the
+model, default `gemini-3.8-flash`) or `ANTHROPIC_API_KEY` for Claude (`FAUXRACCORD_CLAUDE_MODEL`).
 "Auto" uses Gemini when a key is saved, else Claude. Otherwise `ollama serve` with any model
-(`AUTOCUT_OLLAMA_MODEL` to choose).
+(`FAUXRACCORD_OLLAMA_MODEL` to choose).
 `EUROPEANA_KEY` for your own free Europeana key.
 
 Downloads are always the best the source has: original image files (only formats Premiere
@@ -260,26 +263,42 @@ H.264 only when needed (VP9/AV1 sources, or an excerpt cut between keyframes).
 
 ### Premiere panel
 
-Instead of exporting the edit as XML and importing a B-roll XML back, the **Autocut** panel
-works on the sequence open in Premiere (2025 v25.6 or later). **Placer les illustrations**
+Instead of exporting the edit as XML and importing a B-roll XML back, the **FauxRaccord** panel
+works on the sequence open in Premiere (2025 v25.6 or later). **Placer dans Premiere** in the window
+leaves a request on the local bridge (`sourcing/bridge.py`, `/pending`); the open panel picks it up within a
+few seconds, places, and reports back (`/claim`, `/result`), and the window shows the outcome. In the panel
+itself, **Placer les illustrations**
 (or **Placer le storyboard**, with **Quoi › Storyboard**: the storyboard cards, at their beats)
-reads the sequence, asks the Autocut window where each downloaded pick goes (picks you already
+reads the sequence, asks the FauxRaccord window where each downloaded pick goes (picks you already
 dragged in by hand are left out), imports the files (bin `Illustrations - <title>`, one sub-bin
 per type; files already there are reused) and
 puts them on the tracks above the edit, creating tracks when needed. Clicking it again after
 re-editing first removes what it placed before (only the files it placed itself: your edit,
 and what you dragged in by hand, are never touched). **Retirer** removes them. Undo works, in a few steps.
 
-The Autocut window must be open (the panel talks to it on `127.0.0.1:47820`), with the script
-on the Illustrations page and the picks downloaded. Without the window:
-`uv run autocut-sources premiere "episode 12 - sources" [--derush "episode 12.autocut.xml"]`.
+**→ Premiere** on a card of the illustrations sheet or the storyboard, and **⤓** (or the **I** key on the
+hovered sound) on the sound board, put that one file at Premiere's playhead, on the first track that is free for
+its length (V2 and up, A2 and up; a new track when none is), in the bin `FauxRaccord › Insérés`. It is the same
+as dragging the card onto the timeline, for when dragging is awkward. **Ouvrir dans FauxRaccord** in the panel
+brings the window, or one of its boards, to the front.
 
-Install (once, free):
-1. Premiere: Preferences → Plugins → **Enable developer mode**, restart Premiere.
-2. Install **UXP Developer Tools** from the Creative Cloud app (Apps → All apps).
-3. In UXP Developer Tools: **Add Plugin** → pick `premiere/manifest.json` → **Load**. The panel
-   is in Premiere's Window menu (UXP plugins → Autocut). To keep it without the tool,
-   **Package** it there and double-click the `.ccx`.
+The panel works with FauxRaccord, which holds the projects and computes the placement (it talks to it on
+`127.0.0.1:47820`). When FauxRaccord is not running, the panel starts it in the background through the
+`fauxraccord://` link (`fauxraccord://start`; `fauxraccord://open/<sources|storyboard|sons|moments|main>` brings a
+page forward), so there is nothing to open by hand. The panel says when it and FauxRaccord are not the same
+version. Without the window:
+`uv run fauxraccord-sources premiere "episode 12 - sources" [--derush "episode 12.fauxraccord.xml"]`.
+
+Install: nothing to do. `FauxRaccord-Setup.exe` puts the panel where Premiere looks for it, and FauxRaccord
+puts it there again whenever its version changes (at start; **Installation › Panneau Premiere** does it by
+hand). It is a plain copy, without Creative Cloud or developer tools: the `premiere/` folder goes to
+`%APPDATA%\Adobe\UXP\Plugins\External\com.lihogloglo.fauxraccord_<version>`, with its entry in
+`%APPDATA%\Adobe\UXP\PluginsInfo\v1\premierepro.json` (other panels in that list are left alone). Premiere
+loads it at its next start: **Window › UXP Plugins › FauxRaccord**. Uninstalling FauxRaccord removes it.
+
+Why the panel is small: a web page inside a *docked* Premiere panel is not drawn (black, measured with Premiere
+26.5), and a drag from a panel onto the timeline is not accepted. So the boards stay in the FauxRaccord window,
+whose drag onto the timeline is a real Windows file drag, and the panel uses Premiere's own buttons.
 
 ## Storyboard
 
@@ -304,20 +323,20 @@ Not searching, suggesting: what to *make* to illustrate the script, in a style d
    its whole beat. In Premiere, the panel places the same cards in the open sequence (**Quoi ›
    Storyboard**).
 
-The storyboard page (browser) shows the bible and every beat: edit any field (saved as you type,
-the card is redrawn), change the technique, **verrouiller** a beat, **Refaire** one beat (with an
+The storyboard planche (its own FauxRaccord window: a card can be dragged into Premiere) shows the bible and every
+beat: edit any field (saved as you type, the card is redrawn), change the technique, keep a beat (**✓ Gardé**), **Refaire** one beat (with an
 optional instruction: « plutôt une carte »), copy prompts and scenes, rewrite the XML. Running it
 again with the same style keeps the bible and the locked beats.
 
 ```
-uv run autocut-storyboard make "episode 12.md" --style "…" [--ref frame.png] [--pace 6] [--derush "episode 12.autocut.xml"] [--edit montage.xml] [--llm auto|gemini|claude-code|codex|antigravity|claude] [--quality best|fast]
-uv run autocut-storyboard place "episode 12 - storyboard" [--edit montage.xml]
-uv run autocut-storyboard page "episode 12 - storyboard"
+uv run fauxraccord-storyboard make "episode 12.md" --style "…" [--ref frame.png] [--pace 6] [--derush "episode 12.fauxraccord.xml"] [--edit montage.xml] [--llm auto|gemini|claude-code|codex|antigravity|claude] [--quality best|fast]
+uv run fauxraccord-storyboard place "episode 12 - storyboard" [--edit montage.xml]
+uv run fauxraccord-storyboard page "episode 12 - storyboard"
 ```
 
 ## Sounds
 
-`python -m autocut.sfx plan <edit.xml> --out "<video> - sons"` then `python -m autocut.sfx place "<video> - sons"`
+`python -m fauxraccord.sfx plan <edit.xml> --out "<video> - sons"` then `python -m fauxraccord.sfx place "<video> - sons"`
 (the window's **Sons** page runs both; the editor page between them is `sfx/page.py` + `web/sons.html`).
 
 **What gets a sound** (`sfx/events.py`, read from the XML, no pixels): a clip starting on V2 and above — *full
@@ -359,12 +378,12 @@ the page's volume slider moves everything from there.
 - **Epidemic Sound**: your own API key (epidemicsound.com › Account › API keys, valid a year; Epidemic gives no
   sign-in to other apps). Through Epidemic's official MCP server: `SearchSoundEffects` (free) and
   `DownloadSoundEffect` (your subscription), WAV saved in `<video> - sons/médias`. The key is kept in
-  `%APPDATA%\autocut\keys.json` (or `EPIDEMIC_KEY` in the environment / `.env`).
+  `%APPDATA%\fauxraccord\keys.json` (or `EPIDEMIC_KEY` in the environment / `.env`).
 - **Built-in bank**: [earshot](https://github.com/Leonxlnx/earshot) (MIT): 67 whooshes, clicks, pops, typing runs and
-  impacts made in code, rendered on your PC (no network), cached in `%LOCALAPPDATA%\autocut\sfx\earshot`.
+  impacts made in code, rendered on your PC (no network), cached in `%LOCALAPPDATA%\fauxraccord\sfx\earshot`.
   Only its renderer is installed (numpy + scipy; its listening models are left out).
 
-**The editor page**: the voice (rendered from the edit's voice track) and one row per kind, each sound drawn as its
+**The editor** (the sound board's **Sur le montage** tab): the voice (rendered from the edit's voice track) and one row per kind, each sound drawn as its
 waveform with its sync point; the sounds already in the edit in grey. Click a sound: the picture where it lands, its
 take with the waveform, ◀ ▶ other takes (A / Z), *En contexte* (voice 1.5 s before to 2 s after, with every sound),
 kind, level, ±1 frame, remove; search your folders, the bank and Epidemic for another sound (Epidemic previews play
@@ -373,9 +392,9 @@ again at once from `events.json` and `pools.json`, keeping every sound touched b
 
 ### The sound board (by hand)
 
-The **Sons** page has two paths, like the illustrations (Placer, or a card dragged from the planche): the
-automatic one above, and **Ouvrir la planche sonore** (`sfx/board.py` + `web/board.html`), which needs no
-analysis. Three tabs, one per layer: **Bruitages**, **Ambiances**, **Musiques**, from the same sources as the
+The **Sons** page has the same two paths as the illustrations: **Automatique** (analysis, then the editor in the
+board's **Sur le montage** tab, then the XML) and the **planche sonore** (`sfx/board.py` + `web/board.html`), which
+needs no analysis. Besides *Sur le montage*, one tab per layer: **Bruitages**, **Ambiances**, **Musiques**, from the same sources as the
 automatic path (your folders, Epidemic, the built-in bank; the switches on the Sons page apply). Anything on
 it is dragged straight into Premiere's timeline (a file drag, like one from Explorer).
 
@@ -390,7 +409,7 @@ it is dragged straight into Premiere's timeline (a file drag, like one from Expl
   repeats, never twice in a row; ⟳ draws another, ▶ plays it, so what you hear is what you drag. Without
   *Prise au hasard*, click a row: the tile gives that take every time. A bank sound is rendered anew for every
   drag (never twice the same take). The white line on a waveform is where the sound hits: drop it that much
-  before the frame (a whoosh peaks in its middle). Tiles are kept in `%APPDATA%\autocut\board.json`, for every
+  before the frame (a whoosh peaks in its middle). Tiles are kept in `%APPDATA%\fauxraccord\board.json`, for every
   project.
 - **Ambiances** and **Musiques**: lists with waveforms (click one to listen from there), ★, and a filter on
   names, artists and tags. Music shows its artist and stems (`ES_<title> STEMS BASS`).
@@ -418,12 +437,34 @@ Files are sorted by name, folder and length: Epidemic names its effects with tag
 Low… - Epidemic Sound ») and its music « ES_<title> - <artist> »; the nearest folder named sfx / music /
 ambience decides; else up to 12 s is an effect of its kind, an ambience word (rain, crowd, room tone…) or
 20 s and longer an ambience, 45 s and longer without tags music. Lengths, waveforms and hit points are
-measured once (`%LOCALAPPDATA%\autocut\sfx\board-index.json`); stars and the random switch are kept in
-`%APPDATA%\autocut\board.json`, for every project.
+measured once (`%LOCALAPPDATA%\fauxraccord\sfx\board-index.json`); stars and the random switch are kept in
+`%APPDATA%\fauxraccord\board.json`, for every project.
 
 **Output**: `<video> - sons/<title> Sons.xml` with two sequences — the sounds alone (paste them on the edit) and a
 copy of the edit with the sounds on new tracks under its own — one stereo track pair per kind (Whoosh, Clics, Pops,
 Clavier, Impacts), each clip with its level as Premiere's Audio Levels. Files keep their names; nothing is re-encoded.
+
+## Cut to the beat (Outils › Au rythme)
+
+A tool, not a step of the pipeline: rushes cut on the beats of a piece of music (`src/fauxraccord/beat/`). Inputs: a music
+file (or ✂ on a music of the sound board) and rushes — video files, a folder, or a Premiere sequence of selects (each
+clip's in/out is kept). Each rush has an on/off switch.
+
+- **Beats** (`analysis.py`, numpy + scipy): log-mel onset curve → tempo by autocorrelation (counting the half and
+  double period, which settles 3:2 confusions) → Ellis' dynamic-programming tracker → a check that the grid sits on
+  the bass, not between → one timing correction per track from a short-window analysis (≈ ±5 ms on a click track).
+  Bars: the phase with the loudest bass and the most harmonic change. On 22 Epidemic tracks the tempo matched
+  Epidemic's own BPM on 19, two were double/half (the ×2 / ÷2 buttons), one was off. Cached per file.
+- **Cuts** (`plan.py`): on beats, off-beats, eighths, bars or hits; one in N (shiftable); « more cuts when it builds
+  up »; tempo ×2 / ÷2; which beat is 1; picture lead in frames; shortest shot; part of the music used; cuts added or
+  removed by clicking the waveform.
+- **Shots**: rushes in order or shuffled (never twice in a row), each taken from its start on, spread over its length,
+  or at random; « Reshuffle » draws again; any shot can be given another rush or moment by hand.
+- **Output** (`export.py`): `<music> - au rythme.xml` with the cut (V1, the music on A1-A2, the rushes' own sound on
+  request, a marker on every cut) and `<music> · repères`, the music alone with the same markers, to cut by hand with
+  snapping. Clips are named after their files and point at the original rushes.
+
+Command line: `python -m fauxraccord.beat music.mp3 rushes/ --on beat --every 2 -o cut.xml`.
 
 ## AI engines
 
@@ -432,15 +473,15 @@ chosen on the **IA** page (*Auto*: the first connected one, in this order):
 
 | Engine | How | Notes |
 |---|---|---|
-| Gemini | API key pasted on the IA page (`%APPDATA%\autocut\keys.json`) | cheap; `AUTOCUT_GEMINI_MODEL`; pictures sent at medium resolution (`AUTOCUT_GEMINI_MEDIA=low/medium/high`) |
-| Claude | API key (`ANTHROPIC_API_KEY`) | `AUTOCUT_CLAUDE_MODEL` |
+| Gemini | API key pasted on the IA page (`%APPDATA%\fauxraccord\keys.json`) | cheap; `FAUXRACCORD_GEMINI_MODEL`; pictures sent at medium resolution (`FAUXRACCORD_GEMINI_MEDIA=low/medium/high`) |
+| Claude | API key (`ANTHROPIC_API_KEY`) | `FAUXRACCORD_CLAUDE_MODEL` |
 | Claude subscription (Pro/Max) | the official Claude Code CLI, signed in | **Connecter** runs `claude auth login`; opus / sonnet |
 | ChatGPT subscription | the official Codex CLI, signed in with ChatGPT | **Connecter** runs `codex login`; the model is taken from Codex's own list for the account |
 | Gemini subscription (Google AI Pro/Ultra) | the official Antigravity CLI (`agy`), signed in | **Connecter** opens `agy` to sign in; Gemini models from `agy models` |
 | Ollama | local | queries only: it does not look at pictures |
 
 Subscriptions are used only by running the unmodified official CLIs with the user's own login,
-on their machine; Autocut never reads their tokens. Missing CLIs install from the page
+on their machine; FauxRaccord never reads their tokens. Missing CLIs install from the page
 (**Installer**). **Tester** sends a tiny request with an image. **Qualité: Rapide** picks the
 cheaper model of each engine. At the end of each run the log gives the calls and tokens per
 engine, and the cost for the Gemini API (paid-tier prices). Subscription calls are slower (a few seconds each) and count against

@@ -1,6 +1,6 @@
 """Spoken language: found from the script, decides number spelling and ignored hesitations."""
 
-from autocut import text
+from fauxraccord import text
 
 
 def test_detect_language():
